@@ -14,5 +14,26 @@ __pycache__/
 .vscode/
 .idea/
 
-# Streamlit secrets
+# Streamlit
 .streamlit/secrets.toml
+cache/
+
+# Google Cloud credentials (WAŻNE - nie commituj!)
+credentials.json
+*-credentials.json
+service-account.json
+
+# Environment variables
+.env
+.env.local
+
+# Test output files (nie same skrypty testowe)
+test_output/
+*.test.log
+
+# Temporary files
+*.tmp
+*.log
+
+# Test PDF files (nie commitować dużych plików testowych)
+*.pdf

@@ -2,7 +2,7 @@ import streamlit as st
 import time
 import json
 import requests
-import fitz  # PyMuPDF
+import fitz
 import folium
 import osmnx as ox
 import pandas as pd
@@ -27,9 +27,26 @@ from selenium.webdriver.common.action_chains import ActionChains
 import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 from langchain_google_vertexai import VertexAIEmbeddings, VertexAI
+import platform
+import os
 
-# --- KONFIGURACJA (bez zmian) ---
-# ... (cały blok konfiguracyjny jest identyczny)
+# Konfiguracja Tesseract OCR dla Windows
+if platform.system() == 'Windows':
+    # Typowe ścieżki instalacji Tesseract na Windows
+    possible_paths = [
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        r'C:\Users\{}\AppData\Local\Tesseract-OCR\tesseract.exe'.format(os.getenv('USERNAME', ''))
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                import pytesseract
+                pytesseract.pytesseract.tesseract_cmd = path
+                break
+            except ImportError:
+                pass
+
 PROJECT_ID = "***REMOVED***"
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"
@@ -40,8 +57,6 @@ embeddings_model = VertexAIEmbeddings(model_name=EMBEDDING_MODEL_NAME)
 llm = VertexAI(model_name=MODEL_NAME)
 
 
-# --- FUNKCJE GEOPRZESTRZENNE (bez zmian) ---
-# ... (wszystkie funkcje geo są identyczne)
 def geocode_address_to_coords(address):
     nominatim_url = f"https://nominatim.openstreetmap.org/search?q={quote_plus(address)}&format=json&limit=1&countrycodes=pl"
     headers = {'User-Agent': 'AsystentAnalizyDzialki/2.2'}
@@ -88,18 +103,12 @@ def transform_coordinates_to_wgs84(coords_2180):
     return [[transformer.transform(x, y)[1], transformer.transform(x, y)[0]] for x, y in coords_2180]
 
 
-# Zmieniamy dekorator na st.cache_data, aby był zgodny z nowymi typami danych
 def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style: str):
-    """
-    Generuje interaktywny widok 3D, akceptując styl mapy jako argument.
-    """
     try:
-        # --- Cała logika pobierania i przetwarzania danych pozostaje BEZ ZMIAN ---
         tags = {"building": True}
         gdf_buildings = ox.features_from_point(
             (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=300
         )
-        # ... (reszta kodu aż do momentu tworzenia obiektu Deck) ...
         buildings_data_for_pydeck = []
         if not gdf_buildings.empty:
             def estimate_height(row):
@@ -123,11 +132,10 @@ def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style:
         layers_to_render = [layer_parcel]
         if buildings_data_for_pydeck: layers_to_render.append(layer_buildings)
 
-        # --- JEDYNA KLUCZOWA ZMIANA W TEJ FUNKCJI ---
         return pdk.Deck(
             layers=layers_to_render,
             initial_view_state=view_state,
-            map_style=map_style # Używamy przekazanego argumentu
+            map_style=map_style
         )
 
     except Exception as e:
@@ -137,14 +145,7 @@ def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style:
         return None
 
 
-# --- FUNKCJE ANALIZY NASŁONECZNIENIA ---
-
 def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
-    """
-    OSTATECZNA WERSJA: Buduje scenę 3D za pomocą fundamentalnej, ręcznej
-    konstrukcji brył w bibliotece trimesh, omijając wszystkie problematyczne
-    i niepewne funkcje wysokopoziomowe. Ta metoda gwarantuje stabilność.
-    """
     scene = trimesh.Scene()
     polygons_added = 0
     failed_reasons = {"invalid_poly": 0, "triangulation_failed": 0, "validation_failed": 0, "exception": 0}
@@ -152,17 +153,13 @@ def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
 
     for building_dict in buildings_data_metric:
         try:
-            # CRITICAL FIX: Handle coordinate lists properly
             coords = building_dict['polygon']
-            # Remove duplicate closing point if it exists
             if len(coords) > 1:
-                # Handle both list and numpy array comparison
                 first = np.array(coords[0]) if not isinstance(coords[0], np.ndarray) else coords[0]
                 last = np.array(coords[-1]) if not isinstance(coords[-1], np.ndarray) else coords[-1]
                 if np.allclose(first, last, rtol=1e-9):
                     coords = coords[:-1]
 
-            # Ensure we have at least 3 points for a valid polygon
             if len(coords) < 3:
                 failed_reasons["invalid_poly"] += 1
                 continue
@@ -176,11 +173,7 @@ def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
 
             height = building_dict['height']
 
-            # --- UPROSZCZONA STRATEGIA - używamy trimesh.creation.extrude_polygon ---
-            # Jest to o wiele prostsze i bardziej niezawodne niż ręczna konstrukcja
-
             try:
-                # Tworzymy mesh przez ekstruzję poligonu
                 mesh = trimesh.creation.extrude_polygon(poly, height=height)
 
                 if mesh is None or len(mesh.faces) == 0:
@@ -191,16 +184,13 @@ def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
                 failed_reasons["triangulation_failed"] += 1
                 continue
 
-            # FIX 4: Better mesh validation - try to repair if not watertight
             if not mesh.is_watertight:
                 try:
                     trimesh.repair.fix_normals(mesh)
                     trimesh.repair.fill_holes(mesh)
                 except Exception:
-                    pass  # If repair fails, continue anyway
+                    pass
 
-            # CRITICAL FIX: Remove strict validation - add ALL valid meshes
-            # The mesh has vertices and faces, so it can cast shadows
             if len(mesh.faces) > 0 and len(mesh.vertices) > 0:
                 scene.add_geometry(mesh)
                 polygons_added += 1
@@ -211,37 +201,27 @@ def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
             failed_reasons["exception"] += 1
             continue
 
-    # Pokaż tylko jeśli są problemy
     if polygons_added == 0:
         st.warning(f"⚠️ Nie udało się dodać budynków do sceny 3D.")
 
     return scene
 
 def value_to_rgb(value, min_val, max_val, colormap='plasma'):
-    """Mapuje wartość liczbową na kolor RGB używając skali z Matplotlib.
-    plasma: niebieski -> fioletowy -> czerwony -> pomarańczowy -> żółty"""
-    # Zabezpieczenie przed dzieleniem przez zero
     if max_val == min_val:
         norm_value = 0.5
     else:
         norm_value = (value - min_val) / (max_val - min_val)
 
     from matplotlib import cm
-    # Pobranie mapy kolorów
     rgba = cm.get_cmap(colormap)(norm_value)
-    # Konwersja na format [R, G, B, A] dla Pydeck
     return [int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255), 200]
 
 
 def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
-    """Tworzy dyskretną, horyzontalną legendę w HTML, która dostosowuje się do zakresu danych.
-    plasma: niebieski -> fioletowy -> czerwony -> pomarańczowy -> żółty
-    Używa przyciętego zakresu colormap (0.0-0.92) aby uniknąć żółto-zielonego na końcu"""
     from matplotlib import cm
 
-    # ZMIANA: Obsługa przypadku z jedną wartością
     if min_val == max_val:
-        rgba = cm.get_cmap(colormap)(0.5)  # Środkowy kolor z palety
+        rgba = cm.get_cmap(colormap)(0.5)
         rgb = f"rgb({int(rgba[0] * 255)}, {int(rgba[1] * 255)}, {int(rgba[2] * 255)})"
         label = f"{min_val:.1f}h"
         header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
@@ -249,7 +229,6 @@ def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
         content = f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 20px; background: {rgb};'></div><div>{label}</div></div>"
         return f"{header}{title}{content}</div>"
 
-    # ZMIANA: Przycięty zakres colormap (0.0 do 0.92) dla ładniejszego żółtego
     values = np.linspace(min_val, max_val, steps)
     colors = cm.get_cmap(colormap)(np.linspace(0, 0.92, steps))
     header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
@@ -266,13 +245,11 @@ def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
 
 def generate_sun_path_data(lat: float, lon: float, analysis_date: datetime.date, hour_range: tuple,
                            map_center_metric: tuple):
-    """Generuje dane ścieżki słońca przy użyciu precyzyjnej biblioteki pvlib."""
     path_radius = 300
     start_hour, end_hour = hour_range
     center_x, center_y = map_center_metric[0], map_center_metric[1]
     tz = 'Europe/Warsaw'
 
-    # Tworzymy zakres czasu dla analizy co 15 minut
     times = pd.date_range(
         start=f"{analysis_date} {start_hour:02d}:00",
         end=f"{analysis_date} {end_hour:02d}:00",
@@ -280,10 +257,9 @@ def generate_sun_path_data(lat: float, lon: float, analysis_date: datetime.date,
         tz=tz
     )
 
-    # Używamy pvlib do precyzyjnego obliczenia pozycji słońca
     location = pvlib.location.Location(lat, lon, tz=tz)
     solar_position = location.get_solarposition(times)
-    solar_position = solar_position[solar_position['apparent_elevation'] > 0] # Bierzemy tylko pozycje nad horyzontem
+    solar_position = solar_position[solar_position['apparent_elevation'] > 0]
 
     sun_path_line = []
     for index, sun in solar_position.iterrows():
@@ -295,10 +271,9 @@ def generate_sun_path_data(lat: float, lon: float, analysis_date: datetime.date,
         z = path_radius * np.sin(alt_rad)
         sun_path_line.append([center_x + x_offset, center_y + y_offset, z])
 
-    # Generowanie znaczników godzinowych
     hourly_times = pd.date_range(
         start=f"{analysis_date} {start_hour:02d}:00",
-        end=f"{analysis_date} {end_hour-1:02d}:00", # do przedostatniej pełnej godziny
+        end=f"{analysis_date} {end_hour-1:02d}:00",
         freq="H",
         tz=tz
     )
@@ -321,9 +296,6 @@ def generate_sun_path_data(lat: float, lon: float, analysis_date: datetime.date,
 
 
 def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_center_metric: tuple):
-    """
-    Generuje kompletny diagram ścieżki słońca bez obrotu - proste współrzędne.
-    """
     path_radius = 300
     center_x, center_y = map_center_metric[0], map_center_metric[1]
     tz = 'Europe/Warsaw'
@@ -353,7 +325,6 @@ def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_ce
         if path_coords:
             sun_paths.append({'path': path_coords, 'name': date_name})
 
-    # Analemmy - 24 godziny
     analemmas = {}
     for hour in range(0, 24):
         year_data = []
@@ -379,7 +350,6 @@ def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_ce
         if len(year_data) > 10:
             analemmas[hour] = sorted(year_data, key=lambda x: x['day'])
 
-    # Kompas
     azimuth_markers = []
     azimuth_lines = []
     cardinal_directions = {0: 'N', 90: 'E', 180: 'S', 270: 'W'}
@@ -414,7 +384,6 @@ def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_ce
 
 
 def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.ndarray:
-    """Tworzy gęstą siatkę punktów 3D na powierzchni działki."""
     bounds = parcel_polygon.bounds
     min_x, min_y, max_x, max_y = bounds
     x_coords = np.arange(min_x, max_x, density); y_coords = np.arange(min_y, max_y, density)
@@ -424,7 +393,6 @@ def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.nd
     prepared_polygon = prep(parcel_polygon)
     contained_mask = [prepared_polygon.contains(Point(p)) for p in points]
     final_points = points[contained_mask]
-    # Wysokość 0.1m (tuż nad gruntem) - zgodnie z praktyką Ladybug/Grasshopper
     return np.hstack([final_points, np.full((len(final_points), 1), 0.1)])
 
 
@@ -436,9 +404,6 @@ def run_solar_simulation(
         analysis_date: datetime.date,
         hour_range: tuple
 ) -> np.ndarray:
-    """
-    Przeprowadza symulację dla JEDNEGO DNIA z użyciem pvlib i POPRAWIONĄ logiką dla pustej sceny.
-    """
     buildings_data_metric = [
         {'polygon': b_tuple[0], 'height': b_tuple[1]} for b_tuple in _buildings_data_metric_tuple
     ]
@@ -447,10 +412,8 @@ def run_solar_simulation(
     start_hour, end_hour = hour_range
     tz = 'Europe/Warsaw'
 
-    # Inicjalizacja tablicy na wyniki (w godzinach)
     sunlit_hours = np.zeros(len(grid_points_metric))
 
-    # Przygotowanie zakresu czasu zgodnego z wyborem użytkownika
     times = pd.date_range(
         start=f"{analysis_date} {start_hour:02d}:00",
         end=f"{analysis_date} {end_hour:02d}:00",
@@ -460,10 +423,7 @@ def run_solar_simulation(
     solar_position = location.get_solarposition(times)
     solar_position_above_horizon = solar_position[solar_position['apparent_elevation'] > 0]
 
-    # --- KLUCZOWA POPRAWKA LOGICZNA ---
     if scene.is_empty:
-        # Jeśli nie ma budynków, nasłonecznienie jest równe liczbie okresów, w których słońce jest nad horyzontem
-        # w WYBRANYM przez użytkownika zakresie.
         total_sun_periods_in_range = len(solar_position_above_horizon)
         st.warning(
             "⚠️ Nie udało się wygenerować geometrii 3D otoczenia. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
@@ -475,8 +435,6 @@ def run_solar_simulation(
         total_sun_periods_in_range = len(solar_position_above_horizon)
         return np.full(len(grid_points_metric), total_sun_periods_in_range * 0.25)
 
-
-    # Pętla po precyzyjnie obliczonych pozycjach (bez zmian)
     for _, sun_pos in solar_position_above_horizon.iterrows():
         alt_rad = np.deg2rad(sun_pos['apparent_elevation'])
         az_rad = np.deg2rad(sun_pos['azimuth'])
@@ -490,7 +448,6 @@ def run_solar_simulation(
         ray_origins = grid_points_metric
         ray_directions = np.tile(sun_direction, (len(ray_origins), 1))
 
-        # FIX 3: Add ray distance limit to only check nearby buildings (500m max)
         max_ray_distance = 500.0
         locations, index_ray, _ = combined_mesh.ray.intersects_location(
             ray_origins=ray_origins,
@@ -498,7 +455,6 @@ def run_solar_simulation(
             multiple_hits=False
         )
 
-        # Filter intersections by distance
         is_lit = np.ones(len(ray_origins), dtype=bool)
         if len(locations) > 0:
             distances = np.linalg.norm(locations - ray_origins[index_ray], axis=1)
@@ -511,11 +467,8 @@ def run_solar_simulation(
     return sunlit_hours
 
 
-        # --- FUNKCJE AGENTA AI (z kluczową poprawką wydajności) ---
-
-# ... (perform_ai_step bez zmian)...
 def perform_ai_step(driver, model, goal_prompt):
-    st.info(f"🎯 **Cel:** {goal_prompt}")
+    st.info(f" **Cel:** {goal_prompt}")
     screenshot_bytes = driver.get_screenshot_as_png()
     prompt = f"Cel: '{goal_prompt}'. Odpowiedz w JSON, podając `element_text` do kliknięcia."
     response = model.generate_content([Part.from_data(screenshot_bytes, mime_type="image/png"), prompt])
@@ -526,21 +479,17 @@ def perform_ai_step(driver, model, goal_prompt):
         return None, f"Błąd przetwarzania AI: {e}. Odpowiedź: {response.text}"
 
 
-# --- ZOPTYMALIZOWANY EKSTRAKTOR LINKÓW ---
 def extract_links_by_clicking(driver, wait):
-    st.info("🎯 **Cel:** Błyskawiczna ekstrakcja linków.")
+    st.info(" **Cel:** Błyskawiczna ekstrakcja linków.")
     extracted_links = {}
     links_to_find = ["Ustalenia ogólne", "Ustalenia morfoplastyczne", "Ustalenia szczegółowe", "Ustalenia końcowe"]
     original_window = driver.current_window_handle
 
     for label in links_to_find:
-        # --- KLUCZOWA ZMIANA WYDAJNOŚCIOWA ---
-        # Używamy find_elements (l. mnoga), która nie czeka i zwraca pustą listę, jeśli nic nie znajdzie
         link_locator = (By.XPATH, f"//td/div[text()='{label}']/parent::td/following-sibling::td//a")
-        found_links = driver.find_elements(*link_locator)  # Gwiazdka (*) rozpakowuje krotkę (By.XPATH, '...')
+        found_links = driver.find_elements(*link_locator)
 
         if found_links:
-            # Link istnieje, więc go przetwarzamy
             link_to_click = found_links[0]
             try:
                 driver.execute_script("arguments[0].click();", link_to_click)
@@ -555,49 +504,109 @@ def extract_links_by_clicking(driver, wait):
             except Exception as e:
                 st.warning(f"Błąd podczas klikania w link dla '{label}': {e}")
         else:
-            # Link nie istnieje - informujemy i natychmiast przechodzimy dalej
-            st.write(f"ℹ️ Link dla '{label}' nie istnieje na stronie. Pomijam.")
+            st.write(f"Link dla '{label}' nie istnieje na stronie. Pomijam.")
 
     return extracted_links
 
 
-# ... (reszta funkcji analitycznych i run_ai_agent_flow bez zmian)...
-@st.cache_data
-def analyze_documents_with_ai(_links_tuple, parcel_id):  # Zmieniono nazwę argumentu
+def analyze_documents_with_ai(_links_tuple, parcel_id):
     links_dict = dict(_links_tuple)
     results = {'ogolne': {}, 'szczegolowe': {}}
     docs_content = {}
+
     for label, url in links_dict.items():
         try:
-            response = requests.get(url);
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
+
+            # Ekstrakcja tekstu z PDF
             with fitz.open(stream=response.content, filetype="pdf") as doc:
-                docs_content[label] = "".join(page.get_text() for page in doc)
-        except Exception:
+                extracted_text = ""
+                for page in doc:
+                    page_text = page.get_text()
+                    if page_text:
+                        extracted_text += page_text + "\n"
+
+                # Jeśli PDF nie ma warstwy tekstowej (zeskanowany), używamy OCR
+                if len(extracted_text.strip()) < 100:
+                    st.warning(f"Dokument '{label}' nie zawiera warstwy tekstowej. Używam OCR...")
+                    extracted_text = ""
+
+                    try:
+                        import pytesseract
+                        from PIL import Image
+                        import io
+
+                        # Konwertujemy każdą stronę PDF na obraz i używamy OCR
+                        for page_num, page in enumerate(doc, start=1):
+                            # Renderujemy stronę jako obraz (300 DPI dla lepszej jakości)
+                            pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
+                            img_bytes = pix.tobytes("png")
+                            img = Image.open(io.BytesIO(img_bytes))
+
+                            # OCR z konfiguracją dla języka polskiego
+                            page_text_ocr = pytesseract.image_to_string(img, lang='pol')
+                            extracted_text += page_text_ocr + "\n"
+
+                            st.info(f"OCR strona {page_num}/{len(doc)} - wyodrębniono {len(page_text_ocr)} znaków")
+
+                        if extracted_text.strip():
+                            st.success(f"OCR zakończone dla '{label}' - {len(extracted_text)} znaków")
+                        else:
+                            st.error(f"OCR nie wykrył tekstu w dokumencie '{label}'")
+
+                    except ImportError:
+                        st.error("Brak biblioteki pytesseract. Zainstaluj: pip install pytesseract pillow")
+                        st.info("Musisz też zainstalować Tesseract OCR: https://github.com/tesseract-ocr/tesseract")
+                        continue
+                    except Exception as e:
+                        st.error(f"Błąd OCR dla '{label}': {e}")
+                        continue
+
+                docs_content[label] = extracted_text.strip()
+
+        except Exception as e:
+            st.error(f"Błąd podczas przetwarzania '{label}': {e}")
             continue
-    if "Ustalenia ogólne" in docs_content:
+
+    # Analiza Ustaleń ogólnych
+    if "Ustalenia ogólne" in docs_content and docs_content["Ustalenia ogólne"]:
         prompt = f"Na podstawie tego dokumentu, jaki jest ogólny cel i charakter obszaru objętego tym planem?\n\nDokument:\n---\n{docs_content['Ustalenia ogólne']}"
         results['ogolne']['Cel Planu'] = llm.invoke(prompt)
+
+    # Analiza Ustaleń szczegółowych
     if "Ustalenia szczegółowe" in docs_content:
         doc_szczegolowe = docs_content["Ustalenia szczegółowe"]
-        id_prompt = f"Na podstawie poniższego tekstu, jaki jest symbol/oznaczenie terenu elementarnego? (np. 'S.N.9006.MC')\n\nTekst:\n---\n{doc_szczegolowe[:1000]}"
-        results['szczegolowe']['Oznaczenie Terenu'] = llm.invoke(id_prompt)
-        detail_questions = {
-            "Przeznaczenie terenu": "Jakie jest szczegółowe przeznaczenie terenu (podstawowe i dopuszczalne) oraz jakie są zakazy?",
-            "Wysokość zabudowy": "Jakie są szczegółowe ustalenia dotyczące wysokości zabudowy w metrach?",
-            "Wskaźniki zabudowy": "Jakie są szczegółowe wskaźniki, takie jak maksymalna powierzchnia zabudowy i minimalna powierzchnia biologicznie czynna?",
-            "Geometria dachu": "Jakie są szczegółowe wymagania dotyczące geometrii dachu i jego pokrycia?",
-        }
-        for key, question in detail_questions.items():
-            prompt = f"Na podstawie TYLKO i WYŁĄCZNIE poniższego dokumentu 'Ustalenia szczegółowe', odpowiedz na pytanie: {question}\n\nDokument:\n---\n{doc_szczegolowe}"
-            results['szczegolowe'][key] = llm.invoke(prompt)
+
+        if doc_szczegolowe and len(doc_szczegolowe) > 50:
+            # Pytanie o oznaczenie terenu
+            id_prompt = f"Na podstawie poniższego tekstu z dokumentu 'Ustalenia szczegółowe', jaki jest symbol/oznaczenie terenu elementarnego? (np. 'S.N.9006.MC'). Odpowiedz tylko samym symbolem terenu.\n\nTekst dokumentu:\n---\n{doc_szczegolowe[:5000]}"
+            results['szczegolowe']['Oznaczenie Terenu'] = llm.invoke(id_prompt)
+
+            # Szczegółowe pytania
+            detail_questions = {
+                "Przeznaczenie terenu": "Jakie jest szczegółowe przeznaczenie terenu (podstawowe i dopuszczalne) oraz jakie są zakazy?",
+                "Wysokość zabudowy": "Jakie są szczegółowe ustalenia dotyczące wysokości zabudowy w metrach?",
+                "Wskaźniki zabudowy": "Jakie są szczegółowe wskaźniki, takie jak maksymalna powierzchnia zabudowy i minimalna powierzchnia biologicznie czynna?",
+                "Geometria dachu": "Jakie są szczegółowe wymagania dotyczące geometrii dachu i jego pokrycia?",
+            }
+
+            for key, question in detail_questions.items():
+                prompt = f"Na podstawie TYLKO i WYŁĄCZNIE poniższego dokumentu 'Ustalenia szczegółowe', odpowiedz na pytanie: {question}\n\nDokument:\n---\n{doc_szczegolowe}"
+                results['szczegolowe'][key] = llm.invoke(prompt)
+
     return results
 
 
 def run_ai_agent_flow(parcel_id):
     service = Service()
     options = webdriver.ChromeOptions()
-    options.add_argument("--start-maximized")
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--force-device-scale-factor=1")
     driver = webdriver.Chrome(service=service, options=options)
     final_results = {}
     try:
@@ -606,44 +615,34 @@ def run_ai_agent_flow(parcel_id):
             time.sleep(5)
             wait = WebDriverWait(driver, 20)
 
-            # Krok 1: Wyszukanie działki
             search_box = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Szukaj...']")))
             search_box.send_keys(parcel_id)
             wait.until(EC.visibility_of_element_located((By.XPATH, "//li[contains(@class, 'x-boundlist-item')]")))
             time.sleep(1); search_box.send_keys(Keys.RETURN)
             time.sleep(1); search_box.send_keys(Keys.RETURN)
-            st.success("✅ Krok 1/3: Działka zlokalizowana.")
+            st.success("Krok 1/3: Działka zlokalizowana.")
             time.sleep(4)
-
-            # Krok 2: Otwarcie menu i kliknięcie 'Informacje o obiekcie'
             ActionChains(driver).move_by_offset(driver.get_window_size()['width'] / 2, driver.get_window_size()['height'] / 2).context_click().perform()
-            st.success("✅ Krok 2/3: Menu kontekstowe otwarte.")
+            st.success("Krok 2/3: Menu kontekstowe otwarte.")
             time.sleep(1)
             try:
-                # W tym przypadku AI nie jest konieczne, można klikać stały tekst
                 wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Informacje o obiekcie')]"))).click()
-                st.success("✅ Akcja 'Informacje o obiekcie' wykonana.")
-                time.sleep(3)  # Czas na załadowanie danych w oknie
+                st.success("Akcja 'Informacje o obiekcie' wykonana.")
+                time.sleep(3)
             except Exception as e:
-                st.error(f"⚠️ Nie udało się otworzyć okna 'Informacje o obiekcie': {e}")
+                st.error(f"Nie udało się otworzyć okna 'Informacje o obiekcie': {e}")
                 raise e
 
-            # --- POPRAWIONA I PRECYZYJNA LOGIKA SPRAWDZANIA STANU MPZP ---
-            st.info("🔎 Krok 3/3: Sprawdzanie statusu MPZP w dedykowanym oknie...")
+            st.info("Krok 3/3: Sprawdzanie statusu MPZP w dedykowanym oknie...")
             time.sleep(2)
 
-            # Definiujemy precyzyjny kontekst - okno "Informacje o obiekcie"
             info_window_context_xpath = "//div[contains(@class, 'x-window') and .//span[text()='Informacje o obiekcie']]"
-
-            # Scenariusz 1: Sprawdzamy czy W OKNIE istnieje UCHWALONY MPZP
             mpzp_uchwalony_locator = (By.XPATH, info_window_context_xpath + "//*[contains(text(), 'MPZP - Tereny elementarne')]")
-            # Scenariusz 2: Sprawdzamy czy W OKNIE istnieje WSZCZĘTY MPZP
             mpzp_wszczety_locator = (By.XPATH, info_window_context_xpath + "//*[contains(text(), 'MPZP - plany wszczęte')]")
 
             if driver.find_elements(*mpzp_uchwalony_locator):
-                st.success("✅ Znaleziono UCHWALONY MPZP dla tej działki. Kontynuuję analizę...")
+                st.success("Znaleziono UCHWALONY MPZP dla tej działki. Kontynuuję analizę...")
                 try:
-                    # Klikamy w ten konkretny element, który znaleźliśmy
                     driver.find_element(*mpzp_uchwalony_locator).click()
                     time.sleep(2)
 
@@ -652,7 +651,6 @@ def run_ai_agent_flow(parcel_id):
 
                     if final_links:
                         final_results['links'] = final_links
-                        st.subheader("Pobrane Dokumenty:"); st.toast("✅ Linki pobrane!")
                         for label, link in final_links.items(): st.markdown(f"**{label}:** [Otwórz]({link})")
                         with st.spinner("Uruchamiam Agenta Analityka AI..."):
                             analysis = analyze_documents_with_ai(tuple(sorted(final_links.items())), parcel_id)
@@ -664,32 +662,27 @@ def run_ai_agent_flow(parcel_id):
                     return {}
 
             elif driver.find_elements(*mpzp_wszczety_locator):
-                st.warning("🔵 Dla tej działki procedura sporządzenia MPZP została wszczęta, ale plan nie jest jeszcze uchwalony.")
+                st.warning("Dla tej działki procedura sporządzenia MPZP została wszczęta, ale plan nie jest jeszcze uchwalony.")
                 st.info("Agent kończy pracę, ponieważ nie ma jeszcze finalnych dokumentów do analizy.")
                 return {"status": "wszczęty"}
 
             else:
-                st.error("❌ Dla wybranej działki w oknie informacyjnym nie znaleziono żadnych danych o MPZP.")
+                st.error("Dla wybranej działki w oknie informacyjnym nie znaleziono żadnych danych o MPZP.")
                 st.info("Agent kończy pracę.")
                 return {"status": "brak"}
 
     finally:
-        st.write("Zamykam przeglądarkę.")
         driver.quit()
 
     return final_results
 
 
-# --- GŁÓWNY INTERFEJS UŻYTKOWNIKA (ZMIANY W GUI MAPY) ---
 st.set_page_config(layout="wide");
 
-# Custom CSS - Light Immersive Theme
 st.markdown("""
 <style>
-    /* === GLOBAL IMMERSIVE STYLING === */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-    /* IMMERSIVE: Strong scroll snap - infinite scroll style */
     html {
         scroll-behavior: smooth;
         scroll-snap-type: y mandatory;
@@ -701,7 +694,6 @@ st.markdown("""
         overflow-y: scroll;
     }
 
-    /* Hide Deploy button but keep menu and spinner */
     .stDeployButton {
         display: none !important;
     }
@@ -980,14 +972,11 @@ window.addEventListener('load', () => {
 </script>
 """, unsafe_allow_html=True)
 
-# Initialize session state
 for key in ['map_center', 'parcel_data', 'analysis_results', 'show_search']:
     if key not in st.session_state:
         st.session_state[key] = None if key != 'show_search' else False
 
-# IMMERSIVE: Landing page - hero only, clickable anywhere to start
 if not st.session_state.show_search and not st.session_state.map_center:
-    # Simple approach: show hero and button below
     st.markdown("""
     <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 85vh; text-align: center;">
         <h1 style="font-size: 4rem; margin-bottom: 1rem; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
@@ -1007,16 +996,13 @@ if not st.session_state.show_search and not st.session_state.map_center:
     </style>
     """, unsafe_allow_html=True)
 
-    # Centered button to start
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         if st.button("Rozpocznij", key="start_button", use_container_width=True):
             st.session_state.show_search = True
             st.rerun()
 
-# Search section (appears after landing)
 if st.session_state.show_search or st.session_state.map_center:
-    # Header at top (same size as landing page)
     st.markdown("""
     <div style="text-align: center; padding: 2rem 0 1rem 0;">
         <h1 style="font-size: 4rem; margin: 0; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
@@ -1041,7 +1027,6 @@ if st.session_state.show_search or st.session_state.map_center:
                 st.session_state.map_center = coords
 
     if st.session_state.map_center and not st.session_state.parcel_data:
-        # IMMERSIVE: Fullscreen centered map section
         st.markdown("""
         <div style="text-align: center; margin-bottom: 1rem;">
             <h2 style="background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 600;">
@@ -1059,7 +1044,6 @@ if st.session_state.show_search or st.session_state.map_center:
                             name="Działki Ewidencyjne").add_to(m)
         folium.LayerControl().add_to(m)
 
-        # IMMERSIVE: Fullscreen map (80vh for visibility with header)
         map_data = st_folium(m, use_container_width=True, height=700)
 
         if map_data and map_data.get("last_clicked"):
@@ -1074,12 +1058,10 @@ if st.session_state.show_search or st.session_state.map_center:
 
 
     if st.session_state.parcel_data:
-        # IMMERSIVE: Fullscreen confirmation section with map, data, and 3D button
         coords_wgs84 = transform_coordinates_to_wgs84(st.session_state.parcel_data["Współrzędne EPSG:2180"])
         map_center = [sum(p[0] for p in coords_wgs84) / len(coords_wgs84),
                       sum(p[1] for p in coords_wgs84) / len(coords_wgs84)]
 
-        # Large centered confirmation map (no header)
         m_confirm = folium.Map(location=map_center, zoom_start=19)
         folium.TileLayer(
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -1088,7 +1070,6 @@ if st.session_state.show_search or st.session_state.map_center:
                        fill_opacity=0.3, weight=3, tooltip=st.session_state.parcel_data['ID Działki']).add_to(m_confirm)
         st_folium(m_confirm, use_container_width=True, height=550)
 
-        # Parcel ID displayed below map - centered
         st.markdown(f"""
         <div style="text-align: center; margin: 1.5rem 0; padding: 1rem; background: rgba(40, 167, 69, 0.1); border-radius: 12px; border: 2px solid rgba(40, 167, 69, 0.3);">
             <p style="color: #616161; font-size: 0.9rem; margin: 0;">Numer działki ewidencyjnej</p>
@@ -1096,7 +1077,6 @@ if st.session_state.show_search or st.session_state.map_center:
         </div>
         """, unsafe_allow_html=True)
 
-        # IMMERSIVE: 3D button (no header, fits in viewport)
         show_3d_context = st.button(
             "Wygeneruj widok 3D otoczenia",
             key="generate_3d_button",
@@ -1104,21 +1084,18 @@ if st.session_state.show_search or st.session_state.map_center:
             help="Generowanie widoku 3D może zająć kilka sekund"
         )
 
-        # Store 3D state in session
         if 'show_3d' not in st.session_state:
             st.session_state.show_3d = False
 
         if show_3d_context:
             st.session_state.show_3d = not st.session_state.show_3d
 
-        # IMMERSIVE: 3D Fullscreen Takeover (separate section)
         if st.session_state.show_3d:
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 3rem 0 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
 
             if 'map_theme' not in st.session_state: st.session_state.map_theme = "Jasny"
             THEME_MAPPING = {"Jasny": "light", "Ciemny": "dark"}
 
-            # Radio buttons aligned to left (no columns)
             st.session_state.map_theme = st.radio(
                 "Wybierz motyw mapy:", options=["Jasny", "Ciemny"],
                 horizontal=True, key="map_theme_selector"
@@ -1131,7 +1108,6 @@ if st.session_state.show_search or st.session_state.map_center:
                     parcel_poly_coords_lon_lat, map_center, map_style=selected_map_style
                 )
                 if deck_3d_view:
-                    # IMMERSIVE: Fullscreen 3D view with controls info
                     st.markdown("""
                     <div style="background: rgba(66, 165, 245, 0.1); border-left: 4px solid #42a5f5; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
                         <p style="margin: 0; color: #424242; font-size: 0.95rem;">
@@ -1146,7 +1122,6 @@ if st.session_state.show_search or st.session_state.map_center:
 
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
 
-        # IMMERSIVE: Split-screen analysis selector (fullscreen section with more spacing)
         st.markdown("""
         <div style="text-align: center; margin: 10rem 0 3rem 0;">
             <h2 style="font-size: 2.2rem; margin-bottom: 0.5rem;">Wybierz typ analizy</h2>
@@ -1154,14 +1129,11 @@ if st.session_state.show_search or st.session_state.map_center:
         </div>
         """, unsafe_allow_html=True)
 
-        # IMMERSIVE: Big split-screen clickable analysis blocks
         analysis_col1, analysis_col2 = st.columns(2, gap="large")
 
-        # Initialize analysis states
         if 'selected_analysis' not in st.session_state:
             st.session_state.selected_analysis = None
 
-        # --- LEFT HALF: Solar Analysis (block + button) ---
         with analysis_col1:
             st.markdown("""
             <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(255,193,7,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
@@ -1170,16 +1142,13 @@ if st.session_state.show_search or st.session_state.map_center:
             </div>
             """, unsafe_allow_html=True)
 
-            # Add spacing before button
             st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
-            # Centered button below block
             col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
             with col_btn2:
                 if st.button("Wybierz", key="select_solar", use_container_width=True):
                     st.session_state.selected_analysis = "solar"
 
-        # --- RIGHT HALF: MPZP Analysis (block + button) ---
         with analysis_col2:
             st.markdown("""
             <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(33,150,243,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
@@ -1188,16 +1157,13 @@ if st.session_state.show_search or st.session_state.map_center:
             </div>
             """, unsafe_allow_html=True)
 
-            # Add spacing before button
             st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
-            # Centered button below block
             col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
             with col_btn2:
                 if st.button("Wybierz", key="select_mpzp", use_container_width=True):
                     st.session_state.selected_analysis = "mpzp"
 
-        # IMMERSIVE: Fullscreen analysis sections
         if st.session_state.selected_analysis == "solar":
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #FFC107, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)
 
@@ -1228,7 +1194,6 @@ if st.session_state.show_search or st.session_state.map_center:
                     spinner_text = f"Przeprowadzam symulację dla {num_days} {'dzień' if num_days == 1 else 'dni'}, {num_hours} {'godzina' if num_hours == 1 else 'godzin'} (godz. {hour_range[0]}:00-{hour_range[1]}:00)..."
                     with st.spinner(spinner_text):
 
-                        # Krok 1: Pobieramy dane o budynkach z OpenStreetMap
                         gdf_buildings_wgs84 = ox.features_from_point((map_center[0], map_center[1]), {"building": True},
                                                                      dist=350)
                         gdf_buildings_metric = gdf_buildings_wgs84.to_crs("epsg:2180")
@@ -1236,7 +1201,6 @@ if st.session_state.show_search or st.session_state.map_center:
                         buildings_data_metric = []
 
 
-                        # Funkcja do szacowania wysokości
                         def est_h(r):
                             try:
                                 if 'height' in r and r['height'] and str(r['height']).strip(): return float(
@@ -1257,13 +1221,11 @@ if st.session_state.show_search or st.session_state.map_center:
                                 for p in polys: buildings_data_metric.append(
                                     {"polygon": list(p.exterior.coords), "height": building.height})
 
-                        # Krok 2: Tworzymy siatkę analityczną na działce
                         coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
                         parcel_poly_2180 = Polygon(coords_2180)
                         grid_points_2180 = create_analysis_grid(parcel_poly_2180, density=1.0)
 
                         if grid_points_2180.size > 0:
-                            # Krok 3: Uruchamiamy symulację
                             buildings_data_for_cache = tuple(
                                 (tuple(b['polygon']), b['height']) for b in buildings_data_metric
                             )
@@ -1279,7 +1241,6 @@ if st.session_state.show_search or st.session_state.map_center:
                                     hour_range
                                 )
 
-                            # Dalsza część do obsługi wyników (bez zmian)
                             average_sunlit_hours = total_sunlit_hours / len(date_range)
                             transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
                             grid_points_wgs84 = np.array(
@@ -1290,12 +1251,10 @@ if st.session_state.show_search or st.session_state.map_center:
                             map_center_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True).transform(
                                 map_center[1], map_center[0])
 
-                            # Generujemy kompletny sun path diagram (styl Ladybug)
                             sun_paths, analemmas, azimuth_markers, azimuth_lines = generate_complete_sun_path_diagram(
                                 map_center[0], map_center[1], viz_date.year, map_center_metric
                             )
 
-                            # Generujemy pozycję słońca dla wybranej daty/zakresu
                             sun_position_markers = []
                             location = pvlib.location.Location(map_center[0], map_center[1], tz='Europe/Warsaw')
 
@@ -1333,14 +1292,12 @@ if st.session_state.show_search or st.session_state.map_center:
                             st.session_state.solar_analysis_results = None
                 st.rerun()
 
-            # --- NOWA, POPRAWIONA SEKCJ_A WIZUALIZACJI WYNIKÓW ---
             if 'solar_analysis_results' in st.session_state and st.session_state.solar_analysis_results:
                 data = st.session_state.solar_analysis_results
                 if not data["results_df"].empty:
                     results_df = data["results_df"]
                     min_h, max_h = results_df['sun_hours'].min(), results_df['sun_hours'].max()
 
-                    # ZMIANA 3: Zabezpieczenie przed "płaską" legendą
                     if max_h == min_h:
                         max_h += 1.0
 
@@ -1357,28 +1314,21 @@ if st.session_state.show_search or st.session_state.map_center:
                             "height": b['height']
                         })
 
-                    # Konwertujemy sun paths do WGS84 (SZARE)
                     sun_paths_wgs84 = []
                     for sp in data['sun_paths']:
                         path_wgs = [transformer_to_wgs.transform(p[0], p[1]) + (p[2],) for p in sp['path']]
                         sun_paths_wgs84.append({"path": path_wgs})
 
-                    # Analemmy jako segmenty - FILTROWANIE PO DŁUGOŚCI
-                    # Punkty są teraz równomiernie rozłożone (co 1 dzień), więc przeskoki
-                    # będą wyraźnie dłuższe od normalnych segmentów
                     analemmas_segments = {}
 
-                    # Najpierw zbierz WSZYSTKIE segmenty ze WSZYSTKICH analemm
                     all_segments = []
                     for hour, ana_data in data['analemmas'].items():
-                        # Konwertujemy współrzędne do WGS84
                         ana_wgs = []
                         for point_data in ana_data:
                             coords = point_data['coords']
                             wgs_coords = transformer_to_wgs.transform(coords[0], coords[1]) + (coords[2],)
                             ana_wgs.append(wgs_coords)
 
-                        # Tworzymy segmenty z obliczoną długością
                         for i in range(len(ana_wgs) - 1):
                             source = np.array(ana_wgs[i])
                             target = np.array(ana_wgs[i + 1])
@@ -1391,16 +1341,13 @@ if st.session_state.show_search or st.session_state.map_center:
                                 "hour": hour
                             })
 
-                    # Oblicz statystyki długości dla WSZYSTKICH segmentów
                     if len(all_segments) > 0:
                         all_lengths = [s['length'] for s in all_segments]
                         median_length = np.median(all_lengths)
                         min_length = np.min(all_lengths)
 
-                        # Odrzuć segmenty dłuższe niż 2x mediana
                         max_allowed_length = median_length * 2
 
-                        # Filtruj według godziny + odetnij linie pod horyzontem (Z < 0)
                         for hour in data['analemmas'].keys():
                             filtered = [
                                 {"source": s["source"], "target": s["target"], "hour": s["hour"]}
@@ -1414,7 +1361,6 @@ if st.session_state.show_search or st.session_state.map_center:
                     else:
                         analemmas_segments = {hour: [] for hour in data['analemmas'].keys()}
 
-                    # Konwertujemy azimuth markers do WGS84
                     azimuth_markers_wgs84 = []
                     for am in data['azimuth_markers']:
                         pos_wgs = list(transformer_to_wgs.transform(am['position'][0], am['position'][1]))
@@ -1423,9 +1369,8 @@ if st.session_state.show_search or st.session_state.map_center:
                             "label": am['label']
                         })
 
-                    # Konwertujemy azimuth lines do WGS84 (linie kompasu) - BEZ kropek
-                    azimuth_lines_main_wgs84 = []  # Główne kierunki (N, E, S, W)
-                    azimuth_lines_secondary_wgs84 = []  # Pozostałe kierunki
+                    azimuth_lines_main_wgs84 = []
+                    azimuth_lines_secondary_wgs84 = []
 
                     for al in data['azimuth_lines']:
                         line_wgs = [transformer_to_wgs.transform(p[0], p[1]) + (p[2],) for p in al['path']]
@@ -1434,7 +1379,6 @@ if st.session_state.show_search or st.session_state.map_center:
                         else:
                             azimuth_lines_secondary_wgs84.append({"path": line_wgs})
 
-                    # Konwertujemy sun position markers do WGS84 (ŻÓŁTE ikony słońca)
                     sun_positions_wgs84 = []
                     for sp in data['sun_position_markers']:
                         pos_wgs = list(transformer_to_wgs.transform(sp['position'][0], sp['position'][1]))
@@ -1442,8 +1386,6 @@ if st.session_state.show_search or st.session_state.map_center:
                             "position": [pos_wgs[0], pos_wgs[1], sp['position'][2]]
                         })
 
-                    # Definicje warstw wizualizacji
-                    # GridCellLayer - cell_size musi być równy density (1.0m) dla idealnego pokrycia
                     heatmap_layer = pdk.Layer("GridCellLayer", data=results_df, get_position=['lon', 'lat'],
                                               get_fill_color='color', cell_size=1.0, extruded=False,
                                               coverage=1.0)
@@ -1452,18 +1394,13 @@ if st.session_state.show_search or st.session_state.map_center:
                                                extruded=True,
                                                get_elevation="height", get_fill_color=[180, 180, 180, 80], wireframe=True)
 
-                    # KOMPLETNY SUN PATH DIAGRAM (styl Ladybug)
-                    # 1. Ścieżki słońca dla kluczowych dat (SZARE) z efektem billboard
                     sun_path_layer = pdk.Layer("PathLayer", data=sun_paths_wgs84, get_path="path",
                                               get_color=[140, 140, 140, 160], get_width=1,
                                               width_min_pixels=1, billboard=True)
 
-                    # 2. OSTATECZNE ROZWIĄZANIE: 13 OSOBNYCH warstw LineLayer - bez segmentu zamykającego
-                    # Każda analemma jako osobna warstwa z własnymi segmentami
                     analemma_layers = []
 
 
-                    # Renderujemy analemmy jako szare, minimalne linie
                     for hour in sorted(analemmas_segments.keys()):
                         layer = pdk.Layer(
                             "LineLayer",
@@ -1480,17 +1417,14 @@ if st.session_state.show_search or st.session_state.map_center:
                         analemma_layers.append(layer)
 
 
-                    # 3. Linie kompasu - główne kierunki z efektem 3D
                     compass_main_layer = pdk.Layer("PathLayer", data=azimuth_lines_main_wgs84, get_path="path",
                                                    get_color=[90, 90, 90, 150], get_width=1.5,
                                                    width_min_pixels=1, billboard=True)
 
-                    # 4. Linie kompasu - pozostałe kierunki z efektem 3D
                     compass_secondary_layer = pdk.Layer("PathLayer", data=azimuth_lines_secondary_wgs84, get_path="path",
                                                        get_color=[120, 120, 120, 120], get_width=1,
                                                        width_min_pixels=1, billboard=True)
 
-                    # 5. Markery azymutu na poziomie gruntu (etykiety kierunków)
                     azimuth_text_layer = pdk.Layer("TextLayer", data=azimuth_markers_wgs84,
                                                   get_position="position",
                                                   get_text="label",
@@ -1501,26 +1435,23 @@ if st.session_state.show_search or st.session_state.map_center:
                                                   get_alignment_baseline="'center'",
                                                   billboard=True)
 
-                    # 6. Pozycje słońca dla wybranej daty (ŻÓŁTE kule BEZ obwódki)
                     sun_markers_layer = pdk.Layer("ScatterplotLayer", data=sun_positions_wgs84,
                                                  get_position="position",
                                                  get_radius=12, filled=True,
                                                  get_fill_color=[255, 223, 0, 255],
                                                  stroked=False, billboard=True)
 
-                    # Wyświetlanie legendy i mapy 3D
                     st.markdown(create_discrete_legend_html(min_h, max_h, colormap='plasma'), unsafe_allow_html=True)
 
-                    # Składamy wszystkie warstwy razem - analemmy z usuniętymi najdłuższymi segmentami
                     all_layers = [
-                        building_layer,           # Budynki
-                        heatmap_layer,            # Mapa nasłonecznienia
-                        compass_main_layer,       # Linie kompasu - główne (N, E, S, W)
-                        compass_secondary_layer,  # Linie kompasu - pozostałe
-                        sun_path_layer,           # Ścieżki słońca (szare łuki)
-                    ] + analemma_layers + [       # 13 osobnych warstw LineLayer
-                        azimuth_text_layer,       # Etykiety kierunków
-                        sun_markers_layer,        # Żółte ikony słońca dla wybranej daty
+                        building_layer,
+                        heatmap_layer,
+                        compass_main_layer,
+                        compass_secondary_layer,
+                        sun_path_layer,
+                    ] + analemma_layers + [
+                        azimuth_text_layer,
+                        sun_markers_layer,
                     ]
 
                     r = pdk.Deck(layers=all_layers,
@@ -1534,7 +1465,6 @@ if st.session_state.show_search or st.session_state.map_center:
 
 
 
-        # IMMERSIVE: MPZP Fullscreen Section
         elif st.session_state.selected_analysis == "mpzp":
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #2196F3, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)
 
@@ -1545,36 +1475,32 @@ if st.session_state.show_search or st.session_state.map_center:
             </div>
             """, unsafe_allow_html=True)
 
-            # Initialize analysis state
             if 'mpzp_analysis_started' not in st.session_state:
                 st.session_state.mpzp_analysis_started = False
 
-            # Show button only if not started
             if not st.session_state.mpzp_analysis_started:
-                start_btn = st.button("Rozpocznij pełną analizę AI", key="run_mpzp_analysis", use_container_width=True)
+                start_btn = st.button("Rozpocznij analizę AI", key="run_mpzp_analysis", use_container_width=True)
                 if start_btn:
                     st.session_state.mpzp_analysis_started = True
 
-            # Run analysis if started but no results yet
             if st.session_state.mpzp_analysis_started and not st.session_state.get('analysis_results'):
-                st.info("🤖 Agent AI uruchomiony - pobieram dokumenty i analizuję...")
+                st.info("Agent AI uruchomiony - pobieram dokumenty i analizuję...")
                 try:
                     results = run_ai_agent_flow(st.session_state.parcel_data['ID Działki'])
                     if results:
                         st.session_state.analysis_results = results
-                        st.success("✅ Analiza zakończona!")
+                        st.success("Analiza zakończona!")
                     else:
                         st.error("Nie udało się pobrać wyników analizy.")
                         st.session_state.mpzp_analysis_started = False
                 except Exception as e:
-                    st.error(f"❌ Błąd podczas analizy: {str(e)}")
+                    st.error(f"Błąd podczas analizy: {str(e)}")
                     st.session_state.mpzp_analysis_started = False
 
-            # Wyświetlanie wyników analizy AI (jeśli istnieją)
             if st.session_state.get('analysis_results'):
                 results = st.session_state.analysis_results
                 if 'analysis' in results and results['analysis']:
-                    st.success("🎉 Misja Agenta Analityka zakończona!")
+                    st.success("Misja Agenta Analityka zakończona!")
                     if 'ogolne' in results['analysis'] and results['analysis']['ogolne']:
                         st.markdown(f"**Cel Planu:**");
                         st.info(f"{results['analysis']['ogolne'].get('Cel Planu', 'Brak danych.')}")
