@@ -17,6 +17,8 @@ vertexai
 open3d
 matplotlib
 geopandas
-mapbox_earcut  # Biblioteka triangulacji dla trimesh
-pvlib  # Do obliczeń pozycji słońca
-rtree  # Spatial indexing dla ray-castingu w trimesh
+mapbox_earcut
+pvlib
+rtree
+pytesseract
+Pillow
