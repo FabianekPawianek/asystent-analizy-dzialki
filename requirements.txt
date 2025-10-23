@@ -1,0 +1,22 @@
+streamlit
+streamlit-folium
+pandas==2.1.4
+numpy
+requests
+PyMuPDF
+folium
+osmnx
+pydeck
+trimesh
+shapely
+pyproj
+selenium
+langchain-google-vertexai
+google-cloud-aiplatform
+vertexai
+open3d
+matplotlib
+geopandas
+mapbox_earcut  # Biblioteka triangulacji dla trimesh
+pvlib  # Do obliczeń pozycji słońca
+rtree  # Spatial indexing dla ray-castingu w trimesh
