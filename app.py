@@ -636,7 +636,6 @@ def analyze_documents_with_ai(_links_tuple, parcel_id):
 
 
 def run_ai_agent_flow(parcel_id):
-    service = Service()
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -644,6 +643,14 @@ def run_ai_agent_flow(parcel_id):
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--force-device-scale-factor=1")
+
+    # Konfiguracja dla różnych środowisk
+    if os.getenv('CHROME_BIN'):
+        options.binary_location = os.getenv('CHROME_BIN')
+        service = Service(os.getenv('CHROMEDRIVER_PATH'))
+    else:
+        service = Service()
+
     driver = webdriver.Chrome(service=service, options=options)
     final_results = {}
     try:
