@@ -74,7 +74,8 @@ if os.getenv('GCP_CREDENTIALS'):
         if 'private_key' in credentials_dict:
             pk = credentials_dict['private_key']
             print(f"DEBUG: private_key starts with: {pk[:50]}")
-            print(f"DEBUG: private_key contains \\n: {'\\n' in pk}")
+            newline_char = '\\n'
+            print(f"DEBUG: private_key contains newline: {newline_char in pk}")
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(credentials_dict, f)
