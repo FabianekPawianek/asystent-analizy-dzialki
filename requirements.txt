@@ -1,0 +1,9 @@
+streamlit
+requests
+PyMuPDF
+folium
+streamlit-folium
+pyproj
+selenium
+google-cloud-aiplatform
+langchain-google-vertexai
