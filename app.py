@@ -51,6 +51,43 @@ PROJECT_ID = "***REMOVED***"
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"
 EMBEDDING_MODEL_NAME = "text-embedding-004"
+
+# Konfiguracja Google Cloud credentials
+import json
+import tempfile
+
+# Hugging Face Spaces używa zmiennych środowiskowych bezpośrednio
+if os.getenv('type') == 'service_account':
+    credentials_dict = {
+        'type': os.getenv('type'),
+        'project_id': os.getenv('project_id'),
+        'private_key_id': os.getenv('private_key_id'),
+        'private_key': os.getenv('private_key'),
+        'client_email': os.getenv('client_email'),
+        'client_id': os.getenv('client_id'),
+        'auth_uri': os.getenv('auth_uri'),
+        'token_uri': os.getenv('token_uri'),
+        'auth_provider_x509_cert_url': os.getenv('auth_provider_x509_cert_url'),
+        'client_x509_cert_url': os.getenv('client_x509_cert_url'),
+        'universe_domain': os.getenv('universe_domain', 'googleapis.com')
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(credentials_dict, f)
+        credentials_path = f.name
+
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+
+# Streamlit Cloud używa secrets.toml
+elif 'gcp_service_account' in st.secrets:
+    credentials_dict = dict(st.secrets['gcp_service_account'])
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(credentials_dict, f)
+        credentials_path = f.name
+
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+
 vertexai.init(project=PROJECT_ID, location=LOCATION)
 generative_model = GenerativeModel(MODEL_NAME)
 embeddings_model = VertexAIEmbeddings(model_name=EMBEDDING_MODEL_NAME)
