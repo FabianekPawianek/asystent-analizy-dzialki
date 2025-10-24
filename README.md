@@ -8,7 +8,7 @@
 
 Inteligentna aplikacja do kompleksowej analizy działek ewidencyjnych w Szczecinie, wykorzystująca AI (Google Gemini 2.5 Pro) do automatycznej analizy dokumentów planistycznych MPZP.
 
-## 🚀 Live Demo
+## Live Demo
 
 **[Otwórz aplikację →](https://fabianekpawianek-asystent-analizy-dzialki.hf.space)**
 
