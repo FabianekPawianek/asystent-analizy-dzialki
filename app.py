@@ -56,37 +56,70 @@ EMBEDDING_MODEL_NAME = "text-embedding-004"
 import json
 import tempfile
 
+credentials_configured = False
+
 # Hugging Face Spaces używa zmiennych środowiskowych bezpośrednio
-if os.getenv('type') == 'service_account':
-    credentials_dict = {
-        'type': os.getenv('type'),
-        'project_id': os.getenv('project_id'),
-        'private_key_id': os.getenv('private_key_id'),
-        'private_key': os.getenv('private_key'),
-        'client_email': os.getenv('client_email'),
-        'client_id': os.getenv('client_id'),
-        'auth_uri': os.getenv('auth_uri'),
-        'token_uri': os.getenv('token_uri'),
-        'auth_provider_x509_cert_url': os.getenv('auth_provider_x509_cert_url'),
-        'client_x509_cert_url': os.getenv('client_x509_cert_url'),
-        'universe_domain': os.getenv('universe_domain', 'googleapis.com')
-    }
+if os.getenv('GCP_CREDENTIALS'):
+    # Opcja 1: Pełny JSON jako jedna zmienna środowiskowa (PREFEROWANE dla HF)
+    try:
+        credentials_dict = json.loads(os.getenv('GCP_CREDENTIALS'))
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        json.dump(credentials_dict, f)
-        credentials_path = f.name
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(credentials_dict, f)
+            credentials_path = f.name
 
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        credentials_configured = True
+        print("✓ Credentials loaded from GCP_CREDENTIALS env var")
+    except Exception as e:
+        print(f"✗ Failed to load GCP_CREDENTIALS: {e}")
+
+# Opcja 2: Osobne zmienne środowiskowe (fallback)
+elif os.getenv('type') == 'service_account':
+    try:
+        credentials_dict = {
+            'type': os.getenv('type'),
+            'project_id': os.getenv('project_id'),
+            'private_key_id': os.getenv('private_key_id'),
+            'private_key': os.getenv('private_key'),
+            'client_email': os.getenv('client_email'),
+            'client_id': os.getenv('client_id'),
+            'auth_uri': os.getenv('auth_uri'),
+            'token_uri': os.getenv('token_uri'),
+            'auth_provider_x509_cert_url': os.getenv('auth_provider_x509_cert_url'),
+            'client_x509_cert_url': os.getenv('client_x509_cert_url'),
+            'universe_domain': os.getenv('universe_domain', 'googleapis.com')
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(credentials_dict, f)
+            credentials_path = f.name
+
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        credentials_configured = True
+        print("✓ Credentials loaded from individual env vars")
+    except Exception as e:
+        print(f"✗ Failed to load from env vars: {e}")
 
 # Streamlit Cloud używa secrets.toml
 elif 'gcp_service_account' in st.secrets:
-    credentials_dict = dict(st.secrets['gcp_service_account'])
+    try:
+        credentials_dict = dict(st.secrets['gcp_service_account'])
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        json.dump(credentials_dict, f)
-        credentials_path = f.name
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(credentials_dict, f)
+            credentials_path = f.name
 
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        credentials_configured = True
+        print("✓ Credentials loaded from Streamlit secrets")
+    except Exception as e:
+        print(f"✗ Failed to load Streamlit secrets: {e}")
+
+if not credentials_configured:
+    st.error("⚠️ Google Cloud credentials not configured. Please add GCP_CREDENTIALS to Space secrets.")
+    st.info("See Settings → Variables and secrets → Add a new secret")
+    st.stop()
 
 vertexai.init(project=PROJECT_ID, location=LOCATION)
 generative_model = GenerativeModel(MODEL_NAME)
