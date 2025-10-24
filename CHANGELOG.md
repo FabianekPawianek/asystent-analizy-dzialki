@@ -6,179 +6,217 @@ Format oparty na [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 projekt używa [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Planowane (v0.3.0)
-- Wsparcie dla wielokrotnych działek
-- Export analizy do PDF
-- REST API
-- Cache dla dokumentów MPZP
+
+### Planowane (v0.3.0) - Focus: Szczecin
+Projekt w wersji 0.3 będzie kontynuował skupienie na mieście Szczecin, budując bazę analiz potrzebną do rzetelnych wniosków AI.
+
+#### Analiza stanu istniejącego
+- Automatyczne pobieranie zdjęć satelitarnych z Google Maps
+- Integracja z Geoportal.gov.pl dla danych topograficznych
+- Analiza wizualna stanu działki i otoczenia
+- Identyfikacja istniejącej zabudowy i infrastruktury
+- Ocena zagospodarowania terenu
+
+#### Analiza historyczna
+- Scraping i analiza historycznych zdjęć satelitarnych
+- Przetwarzanie skanów historycznych map
+- Analiza książek telefonicznych i dokumentów archiwalnych
+- Rekonstrukcja historii zabudowy działki
+- Timeline zmian zagospodarowania terenu
+
+#### Planowane na późniejsze wersje
+- Generowanie propozycji zabudowy (forma + podział funkcjonalny)
+- Wariantowanie rozwiązań projektowych
+- Rozszerzenie poza Szczecin (wymaga refaktoryzacji modułu MPZP)
 
 ---
 
-## [0.2.0] - 2025-01-23
+## [0.2.0] - 2025-10-23
 
-### 🌟 Dodane
-- **OCR dla zeskanowanych PDF**
-  - Automatyczna detekcja PDF bez warstwy tekstowej
-  - Integracja z Tesseract OCR + język polski
-  - Fallback: standardowa ekstrakcja → OCR
-  - Feedback w czasie rzeczywistym (postęp OCR)
+### Dodane
 
-- **Analiza MPZP z AI (Gemini 2.5 Pro)**
-  - Autonomiczny agent nawigujący po geoportalu
-  - Automatyczna ekstrakcja linków do dokumentów
-  - Analiza ustaleń ogólnych i szczegółowych
-  - Ekstrakcja kluczowych informacji (przeznaczenie, wysokość, wskaźniki)
+#### Wizualizacja 3D otoczenia
+- Generowanie modelu 3D otaczającej zabudowy na podstawie danych OpenStreetMap
+- Funkcja `generate_3d_context_view()` z wykorzystaniem PyDeck
+- Szacowanie wysokości budynków na podstawie parametrów OSM
+- Wybór motywu mapy (jasny/ciemny)
+- Interaktywne sterowanie kamerą (obrót, przesuwanie, zoom)
 
-- **Dokumentacja**
-  - `README.md` - kompleksowa dokumentacja projektu
-  - `DEPLOYMENT.md` - instrukcje deployment na Streamlit Cloud
-  - `INSTALL_OCR.md` - konfiguracja Tesseract OCR
-  - `CHANGELOG.md` - historia zmian
+#### Analiza nasłonecznienia
+- Symulacja ray-tracing z wykorzystaniem Trimesh
+- Funkcja `run_solar_simulation()` obliczająca średnie dzienne nasłonecznienie
+- Mapa cieplna przedstawiająca liczbę godzin słońca dla każdego punktu działki
+- Uwzględnianie cieni rzucanych przez otaczającą zabudowę
+- Konfigurowalne parametry analizy (zakres dat, przedział godzinowy)
+- Diagram ścieżki słońca dla kluczowych dni roku (przesilenia, równonoce)
+- Wizualizacja analemmy dla każdej godziny
+- Oznaczenia azymutów i kierunków kardynalnych
+- Zaznaczenie pozycji słońca w analizowanym okresie
+- Funkcje pomocnicze:
+  - `create_trimesh_scene()` - budowa geometrii 3D zabudowy
+  - `create_analysis_grid()` - generowanie siatki punktów pomiarowych
+  - `generate_sun_path_data()` - obliczanie ścieżki słońca
+  - `generate_complete_sun_path_diagram()` - pełny diagram roczny
+  - `value_to_rgb()` - mapowanie wartości na kolory
+  - `create_discrete_legend_html()` - legenda mapy cieplnej
 
-- **Testy**
-  - `test_ocr.py` - weryfikacja instalacji OCR
-  - `test_pdf_extraction.py` - test ekstrakcji tekstu z PDF
+#### OCR dla zeskanowanych dokumentów PDF
+- Automatyczna detekcja PDF bez warstwy tekstowej
+- Integracja z Tesseract OCR z obsługą języka polskiego
+- Fallback: standardowa ekstrakcja tekstu → OCR
+- Feedback w czasie rzeczywistym (postęp OCR strona po stronie)
+- Auto-konfiguracja ścieżki Tesseract dla Windows (linie 34-48)
 
-- **Deployment**
-  - `packages.txt` - pakiety systemowe dla Streamlit Cloud
-  - Auto-konfiguracja Tesseract dla Windows
-  - Wsparcie dla Linux/macOS
+#### Interfejs użytkownika
+- Ekran powitalny z przyciskiem "Rozpocznij"
+- System wyboru typu analizy (Nasłonecznienie / MPZP)
+- Rozbudowane style CSS z gradientami i animacjami
+- Smooth scroll między sekcjami
+- Responsywny layout
+- Ukryty scrollbar z zachowaniem funkcjonalności
+- Karty analiz z efektami hover
+- Niestandardowe style dla elementów formularzy
 
-### 🔧 Zmienione
-- Refaktoryzacja `analyze_documents_with_ai()`
-  - Lepsze zarządzanie błędami
-  - Fallback OCR dla PDF bez tekstu
-  - Usunięto tłumienie błędów (`except: continue`)
+### Zmienione
 
-- Zwiększono fragment tekstu dla analizy AI (3000 → 5000 znaków)
-- Uproszczono ekstrakcję tekstu z PDF
-- Usunięto niepotrzebne debugowanie w produkcji
+#### Refaktoryzacja analizy MPZP
+- Przepisano `analyze_documents_with_ai()` z lepszym zarządzaniem błędami
+- Dodano fallback OCR dla dokumentów bez warstwy tekstowej
+- Zwiększono fragment tekstu dla analizy AI (do 5000 znaków)
+- Usunięto `@st.cache_data` z funkcji analizy (problemy z cache)
+- Poprawiono obsługę błędów (zastąpiono `except: continue` szczegółową obsługą)
 
-### 🐛 Naprawione
-- Problem z pustymi dokumentami MPZP (OCR jako fallback)
-- Cache Streamlit blokujący nowe wyniki (usunięto `@st.cache_data`)
-- Błędna metoda `get_text("blocks")` (zwracała tuple zamiast string)
+#### Wizualizacja
+- Zwiększono wysokość mapy (500 → 700px dla wyszukiwania, 550px dla potwierdzenia)
+- Zmieniono kolor obrysu działki na #28a745 (zielony)
+- Dodano wypełnienie dla poligonu działki (fill_opacity=0.3)
 
-### 📦 Zależności
-- Dodano: `pytesseract`, `Pillow`
-- Systemowe: `tesseract-ocr`, `tesseract-ocr-pol`
+#### Struktura kodu
+- Dodano zarządzanie stanem sesji dla wyboru analizy
+- Refaktoryzacja układu strony (conditional rendering)
+- Usunięto emoji z komunikatów systemowych
 
-### ⚠️ Breaking Changes
-- **Wymaga Tesseract OCR** dla pełnej funkcjonalności
-  - Lokalnie: instalacja manualna
-  - Streamlit Cloud: automatycznie z `packages.txt`
-- **Wymaga Google Cloud credentials** dla Gemini AI
+### Naprawione
+- Problem z pustymi dokumentami MPZP (OCR jako rozwiązanie)
+- Błędna metoda ekstrakcji tekstu z PDF
+- Cache Streamlit blokujący aktualizacje wyników analizy
 
-### 📊 Wydajność
+### Zależności
+
+#### Dodane biblioteki Python
+- `osmnx` - pobieranie danych budynków z OpenStreetMap
+- `pydeck` - wizualizacja 3D
+- `pvlib` - obliczenia pozycji słońca
+- `trimesh` - geometria 3D i ray-tracing
+- `open3d` - operacje na chmurach punktów
+- `pytesseract` - interfejs do Tesseract OCR
+- `Pillow` - przetwarzanie obrazów dla OCR
+- `numpy` - rozszerzone użycie w obliczeniach numerycznych
+- `pandas` - zakresy dat i szeregi czasowe
+
+#### Pakiety systemowe
+- `tesseract-ocr` - silnik OCR
+- `tesseract-ocr-pol` - dane językowe dla języka polskiego
+
+### Breaking Changes
+- Wymaga instalacji Tesseract OCR dla pełnej funkcjonalności
+  - Lokalnie: instalacja manualna z konfiguracją ścieżki
+  - Streamlit Cloud: automatyczna instalacja przez `packages.txt`
+- Wymaga Google Cloud credentials dla Gemini AI (bez zmian od v0.1)
+- Znacznie zwiększone wymagania pamięci RAM (symulacje 3D)
+
+### Wydajność
 - Ekstrakcja tekstu standardowa: < 1s
-- OCR (3 strony): ~6-15s
-- Analiza AI (Gemini): ~5-10s
+- OCR (dokument 3-stronicowy): 6-15s
+- Analiza AI (Gemini 2.5 Pro): 5-10s
+- Generowanie modelu 3D otoczenia: 2-5s
+- Symulacja nasłonecznienia (1 dzień, 14 godzin): 15-30s
+- Symulacja nasłonecznienia (zakres wielodniowy): proporcjonalnie dłużej
 
 ---
 
-## [0.1.0] - 2024-12-XX
+## [0.1.0] - 2025-10-10
 
-### 🌟 Dodane (Pierwsza wersja)
-- **Identyfikacja działki**
-  - Wyszukiwanie po adresie (Nominatim)
-  - Interaktywna mapa (Folium)
-  - Warstwa satelitarna (Esri)
-  - Warstwa działek ewidencyjnych (ULDK/GUGIK)
-  - Automatyczne pobieranie współrzędnych działki
+### Dodane
 
-- **Wizualizacja 3D**
-  - Model 3D otoczenia (PyDeck)
-  - Budynki z OpenStreetMap
-  - Szacowanie wysokości budynków
-  - Motywy mapy (jasny/ciemny)
-  - Sterowanie kamerą (obrót, zoom, przesuwanie)
+#### Identyfikacja działki
+- Wyszukiwanie po adresie z wykorzystaniem Nominatim API
+- Konwersja adresu na współrzędne geograficzne
+- Pobieranie danych ewidencyjnych z ULDK/GUGIK
+- Funkcja `get_parcel_by_id()` - pobranie geometrii działki po ID
+- Funkcja `get_parcel_from_coords()` - identyfikacja działki po współrzędnych
+- Transformacja współrzędnych między EPSG:2180 a EPSG:4326
 
-- **Analiza nasłonecznienia**
-  - Symulacja ray-tracing (Trimesh)
-  - Uwzględnianie cieni od budynków
-  - Mapa cieplna z godzinami słońca
-  - Diagram ścieżki słońca (analemma)
-  - Konfigurowalne parametry (data, zakres godzin)
-  - Zaznaczenie pozycji słońca na diagramie
+#### Wizualizacja
+- Interaktywna mapa z wykorzystaniem Folium
+- Warstwa satelitarna (Esri World Imagery)
+- Warstwa działek ewidencyjnych (WMS z GUGIK)
+- Wizualizacja poligonu wybranej działki
+- Mapa potwierdzenia z zaznaczoną działką
 
-- **UI/UX**
-  - Nowoczesny design z gradientem
-  - Smooth scroll między sekcjami
-  - Animacje fade-in
-  - Responsywny layout
-  - Ekran powitalny
+#### Analiza MPZP z AI
+- Agent AI Nawigator oparty na Selenium
+- Autonomiczna nawigacja po geoportalu Szczecina
+- Funkcja `run_ai_agent_flow()` - główny workflow agenta
+- Funkcja `extract_links_by_clicking()` - ekstrakcja linków do dokumentów
+- Funkcja `analyze_documents_with_ai()` - analiza treści PDF z Gemini AI
+- Ekstrakcja tekstu z PDF (PyMuPDF - tylko warstwy tekstowe)
+- Analiza ustaleń ogólnych (cel planu)
+- Analiza ustaleń szczegółowych (przeznaczenie, wysokość, wskaźniki, dach)
+- Obsługa trzech stanów MPZP (uchwalony, wszczęty, brak)
 
-- **Integracje**
-  - ULDK/GUGIK - dane działek
-  - Nominatim - geokodowanie
-  - OpenStreetMap - budynki
-  - PVLib - pozycja słońca
-  - Google Vertex AI - backend
+#### Interfejs użytkownika
+- Podstawowy layout Streamlit
+- Formularz wyszukiwania adresu
+- Workflow 2-krokowy (wybór działki → analiza)
+- Wyświetlanie wyników analizy w expanderach
+- System powiadomień (success, error, info, warning)
 
-### 📦 Zależności
-- Core: `streamlit`, `pandas`, `numpy`
-- Geo: `folium`, `streamlit-folium`, `osmnx`, `shapely`, `pyproj`, `geopandas`
-- 3D: `pydeck`, `trimesh`, `open3d`
-- PDF: `PyMuPDF`
-- Solar: `pvlib`
-- AI: `langchain-google-vertexai`, `google-cloud-aiplatform`, `vertexai`
-- Scraping: `selenium`
-- Viz: `matplotlib`
+### Zależności
 
-### 🎨 Style
-- Gradient tło (niebieski → zielony)
-- Zaokrąglone karty
-- Cienie i blur effects
-- Zielona paleta kolorów (#28a745)
-- Custom scrollbar (ukryty)
+#### Biblioteki Python
+- `streamlit` - framework aplikacji webowej
+- `folium`, `streamlit-folium` - mapy interaktywne
+- `pyproj` - transformacje współrzędnych
+- `shapely` - operacje geometryczne
+- `requests` - zapytania HTTP
+- `PyMuPDF` (fitz) - ekstrakcja tekstu z PDF
+- `selenium` - automatyzacja przeglądarki
+- `vertexai` - Google Vertex AI SDK
+- `langchain-google-vertexai` - integracja LangChain z Gemini
+
+#### Usługi zewnętrzne
+- ULDK/GUGIK - dane ewidencyjne działek
+- Nominatim - geokodowanie adresów
+- Google Vertex AI - Gemini 2.5 Pro (analiza dokumentów)
+- Geoportal Szczecin - dane MPZP
+
+### Wymagania
+- Google Cloud credentials dla Gemini AI
+- ChromeDriver dla Selenium
+- Połączenie internetowe (API calls)
 
 ---
 
 ## Legenda typów zmian
 
-- **🌟 Dodane** - nowe funkcje
-- **🔧 Zmienione** - zmiany w istniejących funkcjach
-- **🗑️ Usunięte** - usunięte funkcje
-- **🐛 Naprawione** - poprawki błędów
-- **🔒 Bezpieczeństwo** - poprawki bezpieczeństwa
-- **📦 Zależności** - aktualizacje pakietów
-- **⚠️ Breaking Changes** - zmiany łamiące kompatybilność
-- **📚 Dokumentacja** - zmiany w dokumentacji
-- **🎨 Style** - zmiany wizualne
-- **⚡ Wydajność** - optymalizacje
-
----
-
-## Jak dodawać wpisy
-
-### Format
-```markdown
-## [X.Y.Z] - YYYY-MM-DD
-
-### Dodane
-- Krótki opis nowej funkcji
-  - Szczegół 1
-  - Szczegół 2
-
-### Zmienione
-- Co się zmieniło i dlaczego
-```
-
-### Zasady
-1. Najnowsze zmiany na górze
-2. Grupuj zmiany według typu
-3. Użyj jasnego, zwięzłego języka
-4. Linkuj do issues/PRs jeśli istnieją
-5. Zaznacz breaking changes
+- **Dodane** - nowe funkcje
+- **Zmienione** - zmiany w istniejących funkcjach
+- **Usunięte** - usunięte funkcje
+- **Naprawione** - poprawki błędów
+- **Bezpieczeństwo** - poprawki bezpieczeństwa
+- **Zależności** - aktualizacje pakietów
+- **Breaking Changes** - zmiany łamiące kompatybilność
+- **Wydajność** - optymalizacje
 
 ---
 
 ## Links
 
-- [Repository](https://github.com/TWOJ_USERNAME/Asystent-Analizy-Dzialki)
-- [Releases](https://github.com/TWOJ_USERNAME/Asystent-Analizy-Dzialki/releases)
-- [Issues](https://github.com/TWOJ_USERNAME/Asystent-Analizy-Dzialki/issues)
+- [Repository](https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki)
+- [Releases](https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/releases)
+- [Issues](https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/issues)
 
-[Unreleased]: https://github.com/TWOJ_USERNAME/Asystent-Analizy-Dzialki/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/TWOJ_USERNAME/Asystent-Analizy-Dzialki/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/TWOJ_USERNAME/Asystent-Analizy-Dzialki/releases/tag/v0.1.0
+[Unreleased]: https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/releases/tag/v0.1.0

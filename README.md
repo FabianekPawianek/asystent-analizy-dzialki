@@ -4,7 +4,7 @@
 
 Inteligentna aplikacja do kompleksowej analizy działek ewidencyjnych w Szczecinie, wykorzystująca AI (Google Gemini 2.5 Pro) do automatycznej analizy dokumentów planistycznych MPZP.
 
-## 🌟 Funkcjonalności
+## Funkcjonalności
 
 ### 1. **Identyfikacja działki**
 - Wyszukiwanie działki po adresie
@@ -12,20 +12,20 @@ Inteligentna aplikacja do kompleksowej analizy działek ewidencyjnych w Szczecin
 - Automatyczna identyfikacja granic działki (ULDK/GUGIK)
 - Wyświetlanie numeru ewidencyjnego
 
-### 2. **Analiza 3D otoczenia**
+### 2. **Wizualizacja 3D otoczenia**
 - Generowanie modelu 3D zabudowy w promieniu 300m
 - Dane budynków z OpenStreetMap
 - Interaktywna wizualizacja (PyDeck)
 - Wybór motywu (jasny/ciemny)
 
 ### 3. **Analiza nasłonecznienia**
-- Symulacja nasłonecznienia z uwzględnieniem cieni
-- Ray-tracing w przestrzeni 3D (Trimesh)
-- Mapa cieplna z wizualizacją godzin słońca
-- Diagram ścieżki słońca (analemma)
-- Konfigurowalne parametry (data, godziny)
+- Symulacja ray-tracing z uwzględnieniem cieni budynków
+- Mapa cieplna z liczbą godzin słońca dla każdego punktu działki
+- Diagram ścieżki słońca (przesilenia, równonoce)
+- Wizualizacja analemmy
+- Konfigurowalne parametry (zakres dat, przedział godzinowy)
 
-### 4. **Analiza MPZP z AI** ⭐
+### 4. **Analiza MPZP z AI** 
 - **Autonomiczny agent** nawigujący po geoportalu Szczecina
 - **Automatyczna ekstrakcja** dokumentów MPZP
 - **OCR dla zeskanowanych PDF** (Tesseract + język polski)
@@ -37,7 +37,7 @@ Inteligentna aplikacja do kompleksowej analizy działek ewidencyjnych w Szczecin
   - Wskaźniki zabudowy
   - Geometria dachu
 
-## 🚀 Instalacja lokalna
+## Instalacja lokalna
 
 ### Wymagania systemowe
 - Python 3.9+
@@ -108,45 +108,49 @@ streamlit run app.py
 
 Aplikacja będzie dostępna pod: `http://localhost:8501`
 
-## 🧪 Testowanie
+## Testowanie
 
-### Test OCR
+Sprawdź czy OCR działa poprawnie:
 ```bash
-python3 test_ocr.py
+tesseract --version
 ```
 
-Sprawdza:
-- ✓ Instalację bibliotek (PyMuPDF, pytesseract, Pillow)
-- ✓ Tesseract OCR
-- ✓ Język polski
-- ✓ Ekstrakcję tekstu z przykładowego PDF
+Powinno wyświetlić wersję Tesseract (5.x.x) i dostępne języki (pol).
 
-### Test ekstrakcji PDF
-```bash
-python3 test_pdf_extraction.py
-```
+## Deployment na Streamlit Cloud
 
-## 📦 Deployment na Streamlit Cloud
-
-Zobacz szczegółową instrukcję: **[DEPLOYMENT.md](DEPLOYMENT.md)**
-
-### Quick Start:
-
-1. **Push do GitHub** (upewnij się że `packages.txt` jest w repo)
-2. **Streamlit Cloud** → New app
-3. **Advanced settings** → Secrets:
-   ```toml
-   [gcp_service_account]
-   # Wklej credentials Google Cloud
-   ```
-4. **Deploy!**
-
-### Wymagane pliki:
+### Wymagane pliki
 - `requirements.txt` - biblioteki Python
 - `packages.txt` - pakiety systemowe (Tesseract OCR)
-- `.streamlit/config.toml` - konfiguracja
+- `.streamlit/config.toml` - konfiguracja Streamlit
 
-## 🛠️ Technologie
+### Konfiguracja deployment
+
+1. Push repozytorium na GitHub
+2. Przejdź do https://share.streamlit.io/
+3. Utwórz nową aplikację wskazując na `app.py`
+4. W Advanced Settings → Secrets dodaj Google Cloud credentials:
+   ```toml
+   [gcp_service_account]
+   type = "service_account"
+   project_id = "your-project-id"
+   private_key_id = "..."
+   private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+   client_email = "..."
+   # ... pozostałe pola z credentials.json
+   ```
+5. Deploy
+
+Streamlit Cloud automatycznie zainstaluje Tesseract OCR z `packages.txt`.
+
+### Limity Free Tier
+- 1 GB RAM (może być niewystarczające dla dużych PDF)
+- 1 CPU core
+- Timeout: około 10 minut
+
+W razie problemów z wydajnością rozważ upgrade do Teams lub alternatywne platformy (Google Cloud Run, Heroku).
+
+## Technologie
 
 ### Backend:
 - **Streamlit** - framework aplikacji
@@ -172,7 +176,7 @@ Zobacz szczegółową instrukcję: **[DEPLOYMENT.md](DEPLOYMENT.md)**
 - **LangChain** - orkiestracja LLM
 - **pytesseract** - OCR
 
-## 📊 Wydajność
+## Wydajność
 
 | Operacja | Czas |
 |----------|------|
@@ -183,24 +187,25 @@ Zobacz szczegółową instrukcję: **[DEPLOYMENT.md](DEPLOYMENT.md)**
 | OCR (3 strony PDF) | 6-15s |
 | Analiza AI (Gemini) | 5-10s |
 
-## 🔒 Bezpieczeństwo
+## Bezpieczeństwo
 
-- ❌ **NIE commituj** credentials do GitHub
-- ✅ Używaj `.streamlit/secrets.toml` lub zmiennych środowiskowych
-- ✅ Dodaj `credentials.json` do `.gitignore`
-- ✅ Używaj Service Account (nie user credentials)
+- **NIE commituj** credentials do GitHub
+- Używaj `.streamlit/secrets.toml` lub zmiennych środowiskowych
+- Dodaj `credentials.json` do `.gitignore`
+- Używaj Service Account (nie user credentials)
 
-## 📄 Licencja
+## Licencja
 
 Copyright © 2025 Fabian Korycki
 
-## 🤝 Współpraca
+## Współpraca
 
 Zgłaszanie błędów i propozycje funkcji: [Issues](../../issues)
 
-## 📧 Kontakt
+## Kontakt
 
 Autor: Fabian Korycki
+E-mail: fabiankoryckiarchitecture@gmail.com
 
 Powered by **Google Gemini AI**
 
