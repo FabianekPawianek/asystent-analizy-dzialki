@@ -63,19 +63,7 @@ if os.getenv('GCP_CREDENTIALS'):
     # Opcja 1: Pełny JSON jako jedna zmienna środowiskowa (PREFEROWANE dla HF)
     try:
         credentials_json = os.getenv('GCP_CREDENTIALS')
-
-        # Debug: sprawdź długość i pierwsze znaki
-        print(f"DEBUG: GCP_CREDENTIALS length: {len(credentials_json)}")
-        print(f"DEBUG: First 100 chars: {credentials_json[:100]}")
-
         credentials_dict = json.loads(credentials_json)
-
-        # Debug: sprawdź czy private_key jest poprawny
-        if 'private_key' in credentials_dict:
-            pk = credentials_dict['private_key']
-            print(f"DEBUG: private_key starts with: {pk[:50]}")
-            newline_char = '\\n'
-            print(f"DEBUG: private_key contains newline: {newline_char in pk}")
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(credentials_dict, f)
@@ -83,11 +71,8 @@ if os.getenv('GCP_CREDENTIALS'):
 
         os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         credentials_configured = True
-        print("✓ Credentials loaded from GCP_CREDENTIALS env var")
     except Exception as e:
-        print(f"✗ Failed to load GCP_CREDENTIALS: {e}")
-        import traceback
-        traceback.print_exc()
+        st.error(f"Failed to load GCP credentials: {e}")
 
 # Opcja 2: Osobne zmienne środowiskowe (fallback)
 elif os.getenv('type') == 'service_account':
@@ -112,9 +97,8 @@ elif os.getenv('type') == 'service_account':
 
         os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         credentials_configured = True
-        print("✓ Credentials loaded from individual env vars")
     except Exception as e:
-        print(f"✗ Failed to load from env vars: {e}")
+        st.error(f"Failed to load credentials from environment variables: {e}")
 
 # Streamlit Cloud używa secrets.toml
 elif 'gcp_service_account' in st.secrets:
@@ -127,9 +111,8 @@ elif 'gcp_service_account' in st.secrets:
 
         os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         credentials_configured = True
-        print("✓ Credentials loaded from Streamlit secrets")
     except Exception as e:
-        print(f"✗ Failed to load Streamlit secrets: {e}")
+        st.error(f"Failed to load Streamlit secrets: {e}")
 
 if not credentials_configured:
     st.error("⚠️ Google Cloud credentials not configured. Please add GCP_CREDENTIALS to Space secrets.")

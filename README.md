@@ -11,9 +11,19 @@ license: gpl-3.0
 
 # Asystent Analizy Działki - Szczecin
 
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://fabianekpawianek-asystent-analizy-dzialki.hf.space)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Version](https://img.shields.io/badge/version-0.2-green.svg)](https://github.com/FabianekPawianek/asystent-analizy-dzialki/releases/tag/v0.2.0)
+
 **Wersja Beta 0.2**
 
 Inteligentna aplikacja do kompleksowej analizy działek ewidencyjnych w Szczecinie, wykorzystująca AI (Google Gemini 2.5 Pro) do automatycznej analizy dokumentów planistycznych MPZP.
+
+## 🚀 Live Demo
+
+**[Otwórz aplikację →](https://fabianekpawianek-asystent-analizy-dzialki.hf.space)**
+
+Hostowane na Hugging Face Spaces (16 GB RAM, darmowe).
 
 ## Funkcjonalności
 
