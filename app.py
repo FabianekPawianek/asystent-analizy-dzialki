@@ -62,7 +62,19 @@ credentials_configured = False
 if os.getenv('GCP_CREDENTIALS'):
     # Opcja 1: Pełny JSON jako jedna zmienna środowiskowa (PREFEROWANE dla HF)
     try:
-        credentials_dict = json.loads(os.getenv('GCP_CREDENTIALS'))
+        credentials_json = os.getenv('GCP_CREDENTIALS')
+
+        # Debug: sprawdź długość i pierwsze znaki
+        print(f"DEBUG: GCP_CREDENTIALS length: {len(credentials_json)}")
+        print(f"DEBUG: First 100 chars: {credentials_json[:100]}")
+
+        credentials_dict = json.loads(credentials_json)
+
+        # Debug: sprawdź czy private_key jest poprawny
+        if 'private_key' in credentials_dict:
+            pk = credentials_dict['private_key']
+            print(f"DEBUG: private_key starts with: {pk[:50]}")
+            print(f"DEBUG: private_key contains \\n: {'\\n' in pk}")
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(credentials_dict, f)
@@ -73,6 +85,8 @@ if os.getenv('GCP_CREDENTIALS'):
         print("✓ Credentials loaded from GCP_CREDENTIALS env var")
     except Exception as e:
         print(f"✗ Failed to load GCP_CREDENTIALS: {e}")
+        import traceback
+        traceback.print_exc()
 
 # Opcja 2: Osobne zmienne środowiskowe (fallback)
 elif os.getenv('type') == 'service_account':
