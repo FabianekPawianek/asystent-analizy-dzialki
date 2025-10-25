@@ -1,8 +1,8 @@
-\# Wizja Projektu: Parametryczny Humanizm w Praktyce
+## Wizja Projektu: Parametryczny Humanizm w Praktyce
 
 
 
-\## Nadrzędna Filozofia: Cyfrowy Manifest dla Lepszego Życia
+## Nadrzędna Filozofia: Cyfrowy Manifest dla Lepszego Życia
 
 
 
@@ -18,7 +18,7 @@ Ta ewolucja myśli prowadzi do nowych ram: \*\*Parametrycznego Humanizmu\*\*. Je
 
 
 
-\## Dlaczego Open Source i Licencja GPL?
+## Dlaczego Open Source i Licencja GPL?
 
 
 
@@ -30,7 +30,7 @@ To stanowisko przeciwko oprogramowaniu własnościowemu w naszej dziedzinie, kt�
 
 
 
-\## Mapa Drogowa: Od Danych do Jakości Życia
+## Mapa Drogowa: Od Danych do Jakości Życia
 
 
 
@@ -38,9 +38,9 @@ Przyszłe funkcje, opisane w \[Changelogu](CHANGELOG.md), są bezpośrednią kon
 
 
 
-\-   \*\*Generowanie propozycji zabudowy:\*\* Nie będzie to narzędzie do bezdusznej optymalizacji, ale asystent pomagający wizualizować formy, które najlepiej odpowiadają na ludzkie potrzeby — światła, widoku, połączenia z naturą i społecznością.
+-   **Generowanie propozycji zabudowy:** Nie będzie to narzędzie do bezdusznej optymalizacji, ale asystent pomagający wizualizować formy, które najlepiej odpowiadają na ludzkie potrzeby — światła, widoku, połączenia z naturą i społecznością.
 
-\-   \*\*Rozszerzenie poza Szczecin:\*\* Problemy, które rozwiązuję, nie są unikalne dla jednego miasta. Moim celem jest stworzenie uniwersalnej platformy, która może być zaadaptowana w dowolnym miejscu, wzmacniając lokalne społeczności na całym świecie.
+-   **Rozszerzenie poza Szczecin:** Problemy, które rozwiązuję, nie są unikalne dla jednego miasta. Moim celem jest stworzenie uniwersalnej platformy, która może być zaadaptowana w dowolnym miejscu, wzmacniając lokalne społeczności na całym świecie.
 
 
 
