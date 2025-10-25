@@ -34,7 +34,7 @@ To stanowisko przeciwko oprogramowaniu własnościowemu w naszej dziedzinie, kt�
 
 
 
-Przyszłe funkcje, opisane w \[Changelogu](CHANGELOG.md), są bezpośrednią kontynuacją tej filozofii:
+Przyszłe funkcje, opisane w [Changelogu](CHANGELOG.md), są bezpośrednią kontynuacją tej filozofii:
 
 
 
