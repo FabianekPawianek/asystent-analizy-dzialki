@@ -18,7 +18,7 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 from langchain_google_vertexai import VertexAIEmbeddings, VertexAI
 
-PROJECT_ID = "***REMOVED***"
+PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"
 EMBEDDING_MODEL_NAME = "text-embedding-004"
