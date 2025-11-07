@@ -27,6 +27,10 @@ service-account.json
 .env
 .env.local
 
+# Local environment setup scripts (może zawierać ścieżki do credentials)
+set_env_local.sh
+set_env_local.ps1
+
 # Test output files (nie same skrypty testowe)
 test_output/
 *.test.log

@@ -1,8 +1,8 @@
-\# Wizja Projektu: Parametryczny Humanizm w Praktyce
+# Wizja Projektu: Parametryczny Humanizm w Praktyce
 
 
 
-\## Nadrzędna Filozofia: Cyfrowy Manifest dla Lepszego Życia
+## Nadrzędna Filozofia: Cyfrowy Manifest dla Lepszego Życia
 
 
 
@@ -14,11 +14,11 @@ Współczesne projektowanie parametryczne wykroczyło poza swoje wczesne, stylis
 
 
 
-Ta ewolucja myśli prowadzi do nowych ram: \*\*Parametrycznego Humanizmu\*\*. Jest to podejście, w którym zaawansowane narzędzia obliczeniowe nie służą do narzucania globalnej estetyki, ale stają się precyzyjnymi instrumentami do tworzenia architektury, która jest głęboko empatyczna, prozdrowotna i autentycznie podnosi jakość życia.
+Ta ewolucja myśli prowadzi do nowych ram: **Parametrycznego Humanizmu**. Jest to podejście, w którym zaawansowane narzędzia obliczeniowe nie służą do narzucania globalnej estetyki, ale stają się precyzyjnymi instrumentami do tworzenia architektury, która jest głęboko empatyczna, prozdrowotna i autentycznie podnosi jakość życia.
 
 
 
-\## Dlaczego Open Source i Licencja GPL?
+## Dlaczego Open Source i Licencja GPL?
 
 
 
@@ -30,19 +30,19 @@ To stanowisko przeciwko oprogramowaniu własnościowemu w naszej dziedzinie, kt�
 
 
 
-\## Mapa Drogowa: Od Danych do Jakości Życia
+## Mapa Drogowa: Od Danych do Jakości Życia
 
 
 
-Przyszłe funkcje, opisane w \[Changelogu](CHANGELOG.md), są bezpośrednią kontynuacją tej filozofii:
+Przyszłe funkcje, opisane w [Changelogu](CHANGELOG.md), są bezpośrednią kontynuacją tej filozofii:
 
 
 
-\-   \*\*Generowanie propozycji zabudowy:\*\* Nie będzie to narzędzie do bezdusznej optymalizacji, ale asystent pomagający wizualizować formy, które najlepiej odpowiadają na ludzkie potrzeby — światła, widoku, połączenia z naturą i społecznością.
+-   **Generowanie propozycji zabudowy:** Nie będzie to narzędzie do bezdusznej optymalizacji, ale asystent pomagający wizualizować formy, które najlepiej odpowiadają na ludzkie potrzeby — światła, widoku, połączenia z naturą i społecznością.
 
-\-   \*\*Rozszerzenie poza Szczecin:\*\* Problemy, które rozwiązuję, nie są unikalne dla jednego miasta. Moim celem jest stworzenie uniwersalnej platformy, która może być zaadaptowana w dowolnym miejscu, wzmacniając lokalne społeczności na całym świecie.
+-   **Rozszerzenie poza Szczecin:** Problemy, które rozwiązuję, nie są unikalne dla jednego miasta. Moim celem jest stworzenie uniwersalnej platformy, która może być zaadaptowana w dowolnym miejscu, wzmacniając lokalne społeczności na całym świecie.
 
 
 
-Ten projekt to dowód na to, że metodologia oparta na danych, kierowana przez humanistyczną wizję, ma potencjał nie tylko do uzdrawiania zdegradowanych przestrzeni miejskich, ale do tworzenia wartościowych, innowacyjnych i głęboko ludzkich środowisk do życia.```
+Ten projekt to dowód na to, że metodologia oparta na danych, kierowana przez humanistyczną wizję, ma potencjał nie tylko do uzdrawiania zdegradowanych przestrzeni miejskich, ale do tworzenia wartościowych, innowacyjnych i głęboko ludzkich środowisk do życia.
 
