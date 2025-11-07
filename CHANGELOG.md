@@ -24,12 +24,44 @@ Projekt w wersji 0.3 będzie kontynuował skupienie na mieście Szczecin, buduj�
 - Rekonstrukcja historii zabudowy działki
 - Timeline zmian zagospodarowania terenu
 
+#### Przejście na CityGML 3D
+- Przejście z danych OpenStreetMap na CityGML 3D dla bardziej szczegółowej analizy budynków
+- Ulepszenie dokładności modeli 3D poprzez użycie danych.CityGML
+- Zwiększenie szczegółowości analizy cieni i nasłonecznienia
+- Scalanie danych.CityGML z danymi MPZP
+- Możliwość usunięcia zabudowy na analizowanych działkach w przypadku nieistotnych budynków mogących zaburzać analizę nasłonecznienia
+
 #### Planowane na późniejsze wersje
 - Generowanie propozycji zabudowy (forma + podział funkcjonalny)
 - Wariantowanie rozwiązań projektowych
 - Rozszerzenie poza Szczecin (wymaga refaktoryzacji modułu MPZP)
 
----
+## [0.2.1] - 2025-11-07
+
+### Dodane
+- **Możliwość wyboru wielu działek**: Użytkownik może teraz zaznaczać i analizować wiele działek jednocześnie
+- **Automatyczne centrowanie mapy**: Mapa automatycznie centruje się na wybranej działce po jej kliknięciu
+- **Ulepszona wizualizacja 3D**: Wszystkie zaznaczone działki są teraz wyświetlane z zielonymi obramówkami (RGB #28a745) w widoku 3D
+- **Połączona analiza nasłonecznienia**: Analiza nasłonecznienia działa teraz na połączonym obszarze wszystkich zaznaczonych działek
+- **Poprawiony model analemy słońca**: Zastosowanie bardziej zaawansowanego modelu astronomicznego do obliczeń ścieżek słońca
+- **Skalowanie tytułu**: Responsywne skalowanie tytułu "Asystent Analizy Działki" z gradientem niebiesko-zielonym
+
+### Zmienione
+- **Stylizacja widoku 3D**: Granice działek teraz wyświetlają się jako zielone obramowania o grubości 1px dopasowane do kolorystyki aplikacji
+- **Logika analizy nasłonecznienia**: Zastosowanie unii wybranych działek zamiast analizy pojedynczej działki
+- **Interakcja z mapą**: Kliknięcie działki centruje mapę na tej konkretnej działce
+- **Obsługa poświadczeń GCP**: Ulepszono bezpieczeństwo przez ekstrakcję ID projektu z poświadczeń zamiast twardego kodowania
+- **Czyszczenie kodu**: Usunięto niepotrzebne pliki testowe OCR i inne nieużywane pliki
+
+### Naprawione
+- **Błędy analizy nasłonecznienia**: Naprawiono problemy z symulacją solarną przy wyborze wielu działek
+- **Analiza MPZP**: Poprawnie ekstrahuje ID projektu z poświadczeń dla lepszego bezpieczeństwa
+- **Transformacja współrzędnych**: Dodano brakującą funkcję `transform_single_coord` dla poprawnej konwersji CRS
+- **Wybór motywu**: Usunięto niepotrzebne przyciski wyboru motywu ("Jasny"/"Ciemny")
+
+### Usunięte
+- **Przyciski wyboru motywu**: Uproszczono UI przez usunięcie opcji wyboru motywu mapy
+- **Pliki testowe**: Usunięto testy OCR i inne niepotrzebne pliki deweloperskie
 
 ## [0.2.0] - 2025-10-23
 
@@ -217,6 +249,7 @@ Projekt w wersji 0.3 będzie kontynuował skupienie na mieście Szczecin, buduj�
 - [Releases](https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/releases)
 - [Issues](https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/issues)
 
-[Unreleased]: https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/FabianekPawianek/Asystent-Analizy-Dzialki/releases/tag/v0.1.0

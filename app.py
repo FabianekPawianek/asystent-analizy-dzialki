@@ -30,9 +30,7 @@ from langchain_google_vertexai import VertexAIEmbeddings, VertexAI
 import platform
 import os
 
-# Konfiguracja Tesseract OCR dla Windows
 if platform.system() == 'Windows':
-    # Typowe ścieżki instalacji Tesseract na Windows
     possible_paths = [
         r'C:\Program Files\Tesseract-OCR\tesseract.exe',
         r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
@@ -47,20 +45,17 @@ if platform.system() == 'Windows':
             except ImportError:
                 pass
 
-PROJECT_ID = "***REMOVED***"
+PROJECT_ID = None
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"
 EMBEDDING_MODEL_NAME = "text-embedding-004"
 
-# Konfiguracja Google Cloud credentials
 import json
 import tempfile
 
 credentials_configured = False
 
-# Hugging Face Spaces używa zmiennych środowiskowych bezpośrednio
 if os.getenv('GCP_CREDENTIALS'):
-    # Opcja 1: Pełny JSON jako jedna zmienna środowiskowa (PREFEROWANE dla HF)
     try:
         credentials_json = os.getenv('GCP_CREDENTIALS')
         credentials_dict = json.loads(credentials_json)
@@ -71,10 +66,11 @@ if os.getenv('GCP_CREDENTIALS'):
 
         os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         credentials_configured = True
+        
+        PROJECT_ID = credentials_dict.get('project_id')
     except Exception as e:
         st.error(f"Failed to load GCP credentials: {e}")
 
-# Opcja 2: Osobne zmienne środowiskowe (fallback)
 elif os.getenv('type') == 'service_account':
     try:
         credentials_dict = {
@@ -97,10 +93,11 @@ elif os.getenv('type') == 'service_account':
 
         os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         credentials_configured = True
+        
+        PROJECT_ID = os.getenv('project_id')
     except Exception as e:
         st.error(f"Failed to load credentials from environment variables: {e}")
 
-# Streamlit Cloud używa secrets.toml
 elif 'gcp_service_account' in st.secrets:
     try:
         credentials_dict = dict(st.secrets['gcp_service_account'])
@@ -111,11 +108,13 @@ elif 'gcp_service_account' in st.secrets:
 
         os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         credentials_configured = True
+        
+        PROJECT_ID = credentials_dict.get('project_id')
     except Exception as e:
         st.error(f"Failed to load Streamlit secrets: {e}")
 
 if not credentials_configured:
-    st.error("⚠️ Google Cloud credentials not configured. Please add GCP_CREDENTIALS to Space secrets.")
+    st.error("Google Cloud credentials not configured. Please add GCP_CREDENTIALS to Space secrets.")
     st.info("See Settings → Variables and secrets → Add a new secret")
     st.stop()
 
@@ -169,6 +168,150 @@ def get_parcel_from_coords(lat, lon):
 def transform_coordinates_to_wgs84(coords_2180):
     transformer = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
     return [[transformer.transform(x, y)[1], transformer.transform(x, y)[0]] for x, y in coords_2180]
+
+
+def transform_single_coord(x, y, source_crs, target_crs):
+    """
+    Transform a single coordinate from one CRS to another.
+    Returns (longitude, latitude) for WGS84 or (x, y) for metric systems.
+    """
+    transformer = Transformer.from_crs(f"EPSG:{source_crs}", f"EPSG:{target_crs}", always_xy=True)
+    lon, lat = transformer.transform(x, y)
+    return lon, lat
+
+
+def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center_wgs_84, map_style: str):
+    """Generate 3D context view that shows multiple parcels as separate entities"""
+    try:
+        tags = {"building": True}
+        gdf_buildings = ox.features_from_point(
+            (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=300
+        )
+        buildings_data_for_pydeck = []
+        if not gdf_buildings.empty:
+            def estimate_height(row):
+                try:
+                    if 'height' in row and row['height'] and str(row['height']).strip(): return float(str(row['height']).split(';')[0])
+                    if 'building:levels' in row and row['building:levels'] and str(row['building:levels']).strip(): return float(str(row['building:levels']).split(';')[0]) * 3.5 + 2
+                except (ValueError, TypeError): pass
+                return 10.0
+            gdf_buildings['height'] = pd.to_numeric(gdf_buildings.apply(estimate_height, axis=1), errors='coerce').fillna(10.0)
+            for _, building in gdf_buildings.iterrows():
+                if building.geometry and building.geometry.geom_type in ['Polygon', 'MultiPolygon']:
+                    polygons = [building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
+                    for poly in polygons: buildings_data_for_pydeck.append({"polygon": [list(poly.exterior.coords)], "height": float(building.height)})
+        else:
+             st.info("Nie znaleziono danych o budynkach w okolicy w bazie OpenStreetMap.")
+        
+        layer_buildings = pdk.Layer("PolygonLayer", data=buildings_data_for_pydeck, get_polygon="polygon", extruded=True, wireframe=True, get_elevation="height", get_fill_color=[180, 180, 180, 200], get_line_color=[100, 100, 100])
+        
+        all_parcel_data = []
+        for i, single_parcel_coords in enumerate(all_parcel_coords_list):
+            if len(single_parcel_coords) >= 3:
+                try:
+                    polygon_shape = Polygon(single_parcel_coords)
+                    exterior_coords = list(polygon_shape.exterior.coords)
+                    all_parcel_data.append({"polygon": [exterior_coords], "height": 1.0})
+                except Exception as e:
+                    st.warning(f"Nie można dodać działki #{i} do wizualizacji 3D: {e}")
+                    continue
+        
+        if all_parcel_data:
+            layer_parcels = pdk.Layer(
+                "PolygonLayer", 
+                data=all_parcel_data, 
+                get_polygon="polygon", 
+                extruded=False,
+                get_elevation="height", 
+                filled=False,
+                get_line_color=[40, 167, 69, 255],
+                get_line_width=1,
+                line_width_min_pixels=1
+            )
+        else:
+            layer_parcels = pdk.Layer(
+                "PolygonLayer", 
+                data=[], 
+                get_polygon="polygon", 
+                extruded=False, 
+                get_elevation="height", 
+                filled=False, 
+                get_line_color=[40, 167, 69, 255],
+                get_line_width=1, 
+                line_width_min_pixels=1
+            )
+
+        view_state = pdk.ViewState(latitude=map_center_wgs_84[0], longitude=map_center_wgs_84[1], zoom=17.5, pitch=50, bearing=0)
+        
+        layers_to_render = [layer_parcels]
+        if buildings_data_for_pydeck: layers_to_render.append(layer_buildings)
+
+        return pdk.Deck(
+            layers=layers_to_render,
+            initial_view_state=view_state,
+            map_style=map_style
+        )
+
+    except Exception as e:
+        st.error(f"Wystąpił krytyczny błąd podczas generowania modelu 3D: {e}")
+        import traceback
+        st.text(traceback.format_exc())
+        return None
+
+
+def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_style: str):
+    """Create 3D view with filled parcels using transparency for overlapping areas"""
+    try:
+        tags = {"building": True}
+        gdf_buildings = ox.features_from_point(
+            (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=300
+        )
+        buildings_data_for_pydeck = []
+        if not gdf_buildings.empty:
+            def estimate_height(row):
+                try:
+                    if 'height' in row and row['height'] and str(row['height']).strip(): return float(str(row['height']).split(';')[0])
+                    if 'building:levels' in row and row['building:levels'] and str(row['building:levels']).strip(): return float(str(row['building:levels']).split(';')[0]) * 3.5 + 2
+                except (ValueError, TypeError): pass
+                return 10.0
+            gdf_buildings['height'] = pd.to_numeric(gdf_buildings.apply(estimate_height, axis=1), errors='coerce').fillna(10.0)
+            for _, building in gdf_buildings.iterrows():
+                if building.geometry and building.geometry.geom_type in ['Polygon', 'MultiPolygon']:
+                    polygons = [building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
+                    for poly in polygons: buildings_data_for_pydeck.append({"polygon": [list(poly.exterior.coords)], "height": float(building.height)})
+        else:
+             st.info("Nie znaleziono danych o budynkach w okolicy w bazie OpenStreetMap.")
+        layer_buildings = pdk.Layer("PolygonLayer", data=buildings_data_for_pydeck, get_polygon="polygon", extruded=True, wireframe=True, get_elevation="height", get_fill_color=[180, 180, 180, 200], get_line_color=[100, 100, 100])
+        
+        parcel_data_for_pydeck = []
+        
+        if hasattr(combined_polygon, 'geoms'):
+            for poly in combined_polygon.geoms:
+                if poly.geom_type == 'Polygon':
+                    exterior_coords = list(poly.exterior.coords)
+                    parcel_data_for_pydeck.append({"polygon": [exterior_coords], "height": 1.0})
+        elif combined_polygon.geom_type == 'Polygon':
+            exterior_coords = list(combined_polygon.exterior.coords)
+            parcel_data_for_pydeck.append({"polygon": [exterior_coords], "height": 1.0})
+        
+        layer_parcel = pdk.Layer("PolygonLayer", data=parcel_data_for_pydeck, get_polygon="polygon",
+                               extruded=False, get_elevation="height", filled=True, 
+                               get_fill_color=[40, 167, 69, 180],
+                               get_line_color=[40, 167, 69, 0], get_line_width=0)
+        view_state = pdk.ViewState(latitude=map_center_wgs_84[0], longitude=map_center_wgs_84[1], zoom=17.5, pitch=50, bearing=0)
+        layers_to_render = [layer_parcel, layer_buildings] if buildings_data_for_pydeck else [layer_parcel]
+
+        return pdk.Deck(
+            layers=layers_to_render,
+            initial_view_state=view_state,
+            map_style=map_style
+        )
+
+    except Exception as e:
+        st.error(f"Wystąpił krytyczny błąd podczas generowania modelu 3D: {e}")
+        import traceback
+        st.text(traceback.format_exc())
+        return None
 
 
 def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style: str):
@@ -270,7 +413,7 @@ def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
             continue
 
     if polygons_added == 0:
-        st.warning(f"⚠️ Nie udało się dodać budynków do sceny 3D.")
+        st.warning(f"Nie udało się dodać budynków do sceny 3D.")
 
     return scene
 
@@ -399,20 +542,45 @@ def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_ce
         for day_of_year in range(1, 366):
             try:
                 date = datetime(year, 1, 1).date() + pd.Timedelta(days=day_of_year-1)
-                time = pd.Timestamp(f"{date} {hour:02d}:00", tz=tz)
-                solar_pos = location.get_solarposition(time)
-                elevation = solar_pos['apparent_elevation'].values[0]
-                azimuth = solar_pos['azimuth'].values[0]
-                alt_rad = np.deg2rad(elevation)
-                az_rad = np.deg2rad(azimuth)
-                x_offset = path_radius * np.cos(alt_rad) * np.sin(az_rad)
-                y_offset = path_radius * np.cos(alt_rad) * np.cos(az_rad)
-                z = path_radius * np.sin(alt_rad)
-                year_data.append({
-                    'day': day_of_year,
-                    'coords': [center_x + x_offset, center_y + y_offset, z],
-                    'elevation': elevation
-                })
+                
+                B = 2 * np.pi * (day_of_year - 1) / 365
+                declination = 23.45 * np.sin(B)
+                declination_rad = np.deg2rad(declination)
+                
+                equation_of_time = 9.87 * np.sin(2*B) - 7.53 * np.cos(B) - 1.5 * np.sin(B)
+                
+                solar_time = hour + (equation_of_time / 60)
+                
+                hour_angle = 15 * (solar_time - 12)
+                hour_angle_rad = np.deg2rad(hour_angle)
+                
+                lat_rad = np.deg2rad(lat)
+                
+                sin_alt = (np.sin(lat_rad) * np.sin(declination_rad) +
+                          np.cos(lat_rad) * np.cos(declination_rad) * np.cos(hour_angle_rad))
+                elevation = np.arcsin(sin_alt)
+                elevation_deg = np.rad2deg(elevation)
+
+                cos_az = (np.sin(declination_rad) - np.sin(lat_rad) * sin_alt) / (np.cos(lat_rad) * np.cos(elevation))
+                cos_az = np.clip(cos_az, -1, 1)
+                azimuth_rad = np.arccos(cos_az)
+                
+                if np.sin(hour_angle_rad) >= 0:
+                    azimuth = 360 - np.rad2deg(azimuth_rad)
+                else:
+                    azimuth = np.rad2deg(azimuth_rad)
+                
+                if elevation_deg > 0:
+                    alt_rad = elevation
+                    az_rad = np.deg2rad(azimuth)
+                    x_offset = path_radius * np.cos(alt_rad) * np.sin(az_rad)
+                    y_offset = path_radius * np.cos(alt_rad) * np.cos(az_rad)
+                    z = path_radius * np.sin(alt_rad)
+                    year_data.append({
+                        'day': day_of_year,
+                        'coords': [center_x + x_offset, center_y + y_offset, z],
+                        'elevation': elevation_deg
+                    })
             except:
                 continue
         if len(year_data) > 10:
@@ -430,9 +598,9 @@ def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_ce
         y_label = (path_radius + extension + 15) * np.cos(az_rad)
 
         if azimuth_deg in cardinal_directions:
-            label = f"{cardinal_directions[azimuth_deg]} ({azimuth_deg}°)"
+            label = f"{cardinal_directions[azimuth_deg]} ({azimuth_deg} deg)"
         else:
-            label = f"{azimuth_deg}°"
+            label = f"{azimuth_deg} deg"
 
         azimuth_markers.append({
             'position': [center_x + x_label, center_y + y_label, 0.5],
@@ -494,12 +662,12 @@ def run_solar_simulation(
     if scene.is_empty:
         total_sun_periods_in_range = len(solar_position_above_horizon)
         st.warning(
-            "⚠️ Nie udało się wygenerować geometrii 3D otoczenia. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
+            "Nie udało się wygenerować geometrii 3D otoczenia. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
         return np.full(len(grid_points_metric), total_sun_periods_in_range * 0.25)
 
     combined_mesh = scene.dump(concatenate=True)
     if not isinstance(combined_mesh, trimesh.Trimesh):
-        st.warning("⚠️ Błąd podczas łączenia geometrii 3D. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
+        st.warning("Błąd podczas łączenia geometrii 3D. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
         total_sun_periods_in_range = len(solar_position_above_horizon)
         return np.full(len(grid_points_metric), total_sun_periods_in_range * 0.25)
 
@@ -587,7 +755,6 @@ def analyze_documents_with_ai(_links_tuple, parcel_id):
             response = requests.get(url, timeout=30)
             response.raise_for_status()
 
-            # Ekstrakcja tekstu z PDF
             with fitz.open(stream=response.content, filetype="pdf") as doc:
                 extracted_text = ""
                 for page in doc:
@@ -595,7 +762,6 @@ def analyze_documents_with_ai(_links_tuple, parcel_id):
                     if page_text:
                         extracted_text += page_text + "\n"
 
-                # Jeśli PDF nie ma warstwy tekstowej (zeskanowany), używamy OCR
                 if len(extracted_text.strip()) < 100:
                     st.warning(f"Dokument '{label}' nie zawiera warstwy tekstowej. Używam OCR...")
                     extracted_text = ""
@@ -605,14 +771,11 @@ def analyze_documents_with_ai(_links_tuple, parcel_id):
                         from PIL import Image
                         import io
 
-                        # Konwertujemy każdą stronę PDF na obraz i używamy OCR
                         for page_num, page in enumerate(doc, start=1):
-                            # Renderujemy stronę jako obraz (300 DPI dla lepszej jakości)
                             pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
                             img_bytes = pix.tobytes("png")
                             img = Image.open(io.BytesIO(img_bytes))
 
-                            # OCR z konfiguracją dla języka polskiego
                             page_text_ocr = pytesseract.image_to_string(img, lang='pol')
                             extracted_text += page_text_ocr + "\n"
 
@@ -637,21 +800,17 @@ def analyze_documents_with_ai(_links_tuple, parcel_id):
             st.error(f"Błąd podczas przetwarzania '{label}': {e}")
             continue
 
-    # Analiza Ustaleń ogólnych
     if "Ustalenia ogólne" in docs_content and docs_content["Ustalenia ogólne"]:
         prompt = f"Na podstawie tego dokumentu, jaki jest ogólny cel i charakter obszaru objętego tym planem?\n\nDokument:\n---\n{docs_content['Ustalenia ogólne']}"
         results['ogolne']['Cel Planu'] = llm.invoke(prompt)
 
-    # Analiza Ustaleń szczegółowych
     if "Ustalenia szczegółowe" in docs_content:
         doc_szczegolowe = docs_content["Ustalenia szczegółowe"]
 
         if doc_szczegolowe and len(doc_szczegolowe) > 50:
-            # Pytanie o oznaczenie terenu
             id_prompt = f"Na podstawie poniższego tekstu z dokumentu 'Ustalenia szczegółowe', jaki jest symbol/oznaczenie terenu elementarnego? (np. 'S.N.9006.MC'). Odpowiedz tylko samym symbolem terenu.\n\nTekst dokumentu:\n---\n{doc_szczegolowe[:5000]}"
             results['szczegolowe']['Oznaczenie Terenu'] = llm.invoke(id_prompt)
 
-            # Szczegółowe pytania
             detail_questions = {
                 "Przeznaczenie terenu": "Jakie jest szczegółowe przeznaczenie terenu (podstawowe i dopuszczalne) oraz jakie są zakazy?",
                 "Wysokość zabudowy": "Jakie są szczegółowe ustalenia dotyczące wysokości zabudowy w metrach?",
@@ -675,7 +834,6 @@ def run_ai_agent_flow(parcel_id):
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--force-device-scale-factor=1")
 
-    # Konfiguracja dla różnych środowisk
     if os.getenv('CHROME_BIN'):
         options.binary_location = os.getenv('CHROME_BIN')
         service = Service(os.getenv('CHROMEDRIVER_PATH'))
@@ -851,6 +1009,19 @@ st.markdown("""
         text-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);
     }
 
+    /* Responsive h1 styling for mobile devices */
+    @media (max-width: 768px) {
+        h1 {
+            font-size: 2.5rem !important;
+        }
+    }
+
+    @media (max-width: 480px) {
+        h1 {
+            font-size: 2rem !important;
+        }
+    }
+
     h2, h3 {
         color: #2e7d32 !important;
         font-weight: 600;
@@ -1019,6 +1190,7 @@ st.markdown("""
         background-clip: text !important;
         font-weight: 600 !important;
     }
+    
 </style>
 
 <script>
@@ -1045,11 +1217,114 @@ window.addEventListener('load', () => {
     });
 });
 </script>
+
+<script>
+// IMMERSIVE: Auto-scroll to bottom after Streamlit reruns
+const autoScrollToBottom = () => {
+    setTimeout(() => {
+        window.scrollTo({
+            top: document.body.scrollHeight,
+            behavior: 'smooth'
+        });
+    }, 300);
+};
+
+// Listen for Streamlit script finished event
+window.addEventListener('load', () => {
+    const observer = new MutationObserver(() => {
+        // Check if new content was added (indicates rerun completed)
+        autoScrollToBottom();
+    });
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+});
+
+// CUSTOM IMMERSIVE CURSOR - Enhanced for Streamlit compatibility
+function initCustomCursor() {
+    // Remove any existing cursor if present
+    const existingCursor = document.getElementById('custom-cursor');
+    if (existingCursor) {
+        existingCursor.remove();
+    }
+    
+    // Create custom cursor element
+    const cursor = document.createElement('div');
+    cursor.id = 'custom-cursor';
+    cursor.style.cssText = `
+        position: fixed;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #42a5f5;
+        border-radius: 50%;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+        z-index: 999999 !important;
+        transition: width 0.1s ease, height 0.1s ease, border-color 0.3s ease;
+        mix-blend-mode: difference;
+        background-color: transparent;
+    `;
+    document.body.appendChild(cursor);
+    
+    // Update cursor position
+    document.addEventListener('mousemove', (e) => {
+        cursor.style.left = e.clientX + 'px';
+        cursor.style.top = e.clientY + 'px';
+        
+        // Dynamic color based on position (blue-green gradient)
+        const x = e.clientX / window.innerWidth;
+        const r = Math.floor(66 + (106 - 66) * x); // 42a5f5 blue component range
+        const g = Math.floor(165 + (186 - 165) * x); // 42a5f5 to 66bb6a green component range
+        const b = Math.floor(245 + (106 - 245) * x); // 42a5f5 to 66bb6a blue component range
+        cursor.style.borderColor = `rgb(${r}, ${g}, ${b})`;
+    });
+    
+    // Click effect - shrink the cursor
+    document.addEventListener('mousedown', () => {
+        cursor.style.width = '12px';
+        cursor.style.height = '12px';
+    });
+    
+    document.addEventListener('mouseup', () => {
+        cursor.style.width = '20px';
+        cursor.style.height = '20px';
+    });
+    
+    // Hide default cursor using more specific selectors for Streamlit
+    const hideCursorStyle = document.createElement('style');
+    hideCursorStyle.innerHTML = `
+        body, body *, button, button *, input, input *, select, select *, textarea, textarea *, 
+        div, div *, span, span *, a, a *, label, label *, p, p *, h1, h2, h3, h4, h5, h6, 
+        .stButton, .stButton button, .stSelectbox, .stTextInput, .stNumberInput, 
+        .stSlider, .stCheckbox, .stRadio, .stTextArea, .stDataFrame, 
+        [data-testid="stElementToolbar"], .element-container, .main, .block-container {
+            cursor: none !important;
+        }
+    `;
+    document.head.appendChild(hideCursorStyle);
+}
+
+// Initialize cursor after page is fully loaded
+document.addEventListener('DOMContentLoaded', initCustomCursor);
+// Also try to initialize after a short delay for Streamlit components
+setTimeout(initCustomCursor, 1000);
+// And again after another delay to ensure all components are loaded
+setTimeout(initCustomCursor, 2000);
+</script>
 """, unsafe_allow_html=True)
 
-for key in ['map_center', 'parcel_data', 'analysis_results', 'show_search']:
+for key in ['map_center', 'parcel_data', 'selected_parcels', 'analysis_results', 'show_search', 'confirming_selection', 'show_3d', 'selected_analysis']:
     if key not in st.session_state:
-        st.session_state[key] = None if key != 'show_search' else False
+        if key == 'selected_parcels':
+            st.session_state[key] = []
+        elif key in ['confirming_selection', 'show_3d']:
+            st.session_state[key] = False
+        elif key == 'selected_analysis':
+            st.session_state[key] = None
+        else:
+            st.session_state[key] = None if key != 'show_search' else False
 
 if not st.session_state.show_search and not st.session_state.map_center:
     st.markdown("""
@@ -1057,7 +1332,7 @@ if not st.session_state.show_search and not st.session_state.map_center:
         <h1 style="font-size: 4rem; margin-bottom: 1rem; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
             Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin • Wersja Beta 0.2</p>
+        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin • Wersja Beta 0.2.1</p>
         <p style="font-size: 1rem; color: #616161; margin-bottom: 3rem;">
             Autor: Fabian Korycki | Powered by <span style="color: #28a745; font-weight: 600;">Google Gemini AI</span>
         </p>
@@ -1083,7 +1358,7 @@ if st.session_state.show_search or st.session_state.map_center:
         <h1 style="font-size: 4rem; margin: 0; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
             Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1rem; color: #616161; margin: 0.5rem 0 0 0;">Szczecin • Beta 0.2</p>
+        <p style="font-size: 1rem; color: #616161; margin: 0.5rem 0 0 0;">Szczecin • Wersja Beta 0.2.1</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1101,25 +1376,45 @@ if st.session_state.show_search or st.session_state.map_center:
             else:
                 st.session_state.map_center = coords
 
-    if st.session_state.map_center and not st.session_state.parcel_data:
+    if st.session_state.map_center:
         st.markdown("""
         <div style="text-align: center; margin-bottom: 1rem;">
             <h2 style="background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 600;">
-                Wybierz działkę na mapie
+                Wybierz działki na mapie
             </h2>
-            <p style="color: #616161; font-size: 1rem;">Kliknij na interesującą Cię działkę, aby ją zidentyfikować</p>
+            <p style="color: #616161; font-size: 1rem;">Kliknij na działki, aby je zaznaczyć/odznaczyć. Wybierz analizę z dołu strony.</p>
         </div>
         """, unsafe_allow_html=True)
 
+        # Utwórz mapę Folium z obsługą kliknięć
+        import folium
+        from streamlit_folium import st_folium
+
         m = folium.Map(location=st.session_state.map_center, zoom_start=18)
-        folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                         attr='Esri', name='Satelita', overlay=True).add_to(m)
+        folium.TileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri', name='Satelita', overlay=True).add_to(m)
         folium.WmsTileLayer(url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
                             layers="dzialki,numery_dzialek", transparent=True, fmt="image/png",
                             name="Działki Ewidencyjne").add_to(m)
         folium.LayerControl().add_to(m)
 
-        map_data = st_folium(m, use_container_width=True, height=700)
+        m = folium.Map(location=st.session_state.map_center, zoom_start=18)
+        folium.TileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attr='Esri', name='Satelita', overlay=True).add_to(m)
+        folium.WmsTileLayer(url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
+                            layers="dzialki,numery_dzialek", transparent=True, fmt="image/png",
+                            name="Działki Ewidencyjne").add_to(m)
+        folium.LayerControl().add_to(m)
+
+        for parcel in st.session_state.selected_parcels:
+            coords_wgs84 = transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
+            folium.Polygon(locations=coords_wgs84, color='#28a745', fill=True, fillColor='#28a745',
+                           fill_opacity=0.5, weight=3, tooltip=parcel['ID Działki']).add_to(m)
+
+        map_key = f"parcel_map_{len(st.session_state.selected_parcels)}"
+        map_data = st_folium(m, use_container_width=True, height=700, key=map_key)
 
         if map_data and map_data.get("last_clicked"):
             lat, lon = map_data["last_clicked"]["lat"], map_data["last_clicked"]["lng"]
@@ -1128,30 +1423,42 @@ if st.session_state.show_search or st.session_state.map_center:
                 if error:
                     st.error(error)
                 else:
-                    st.session_state.parcel_data = parcel_data; st.rerun()
+                    existing_index = None
+                    for i, selected_parcel in enumerate(st.session_state.selected_parcels):
+                        if selected_parcel['ID Działki'] == parcel_data['ID Działki']:
+                            existing_index = i
+                            break
+
+                    if existing_index is not None:
+                        st.session_state.selected_parcels.pop(existing_index)
+                        st.info(f"Działka {parcel_data['ID Działki']} odznaczona")
+                    else:
+                        st.session_state.selected_parcels.append(parcel_data)
+                        st.success(f"Działka {parcel_data['ID Działki']} zaznaczona")
+                    
+                    coords_2180 = parcel_data["Współrzędne EPSG:2180"]
+                    if coords_2180 and len(coords_2180) > 0:
+                        avg_x = sum(p[0] for p in coords_2180) / len(coords_2180)
+                        avg_y = sum(p[1] for p in coords_2180) / len(coords_2180)
+                        center_lon, center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+                        st.session_state.map_center = (center_lat, center_lon)
+                    
+                    st.rerun()
+
+        if st.session_state.selected_parcels:
+            parcel_ids = [parcel['ID Działki'] for parcel in st.session_state.selected_parcels]
+            parcel_list_str = ", ".join(parcel_ids)
+            
+            st.markdown(f"""
+            <div style="text-align: center; margin: 1.5rem 0; padding: 1rem; background: rgba(40, 167, 69, 0.15); border-radius: 12px; border: 2px solid rgba(40, 167, 69, 0.3);">
+                <p style="font-size: 1.1rem; font-weight: 600; color: #28a745; margin: 0; font-family: monospace;">{parcel_list_str}</p>
+            </div>
+            """, unsafe_allow_html=True)
 
 
-
-    if st.session_state.parcel_data:
-        coords_wgs84 = transform_coordinates_to_wgs84(st.session_state.parcel_data["Współrzędne EPSG:2180"])
-        map_center = [sum(p[0] for p in coords_wgs84) / len(coords_wgs84),
-                      sum(p[1] for p in coords_wgs84) / len(coords_wgs84)]
-
-        m_confirm = folium.Map(location=map_center, zoom_start=19)
-        folium.TileLayer(
-            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            attr='Esri').add_to(m_confirm)
-        folium.Polygon(locations=coords_wgs84, color='#28a745', fill=True, fillColor='#28a745',
-                       fill_opacity=0.3, weight=3, tooltip=st.session_state.parcel_data['ID Działki']).add_to(m_confirm)
-        st_folium(m_confirm, use_container_width=True, height=550)
-
-        st.markdown(f"""
-        <div style="text-align: center; margin: 1.5rem 0; padding: 1rem; background: rgba(40, 167, 69, 0.1); border-radius: 12px; border: 2px solid rgba(40, 167, 69, 0.3);">
-            <p style="color: #616161; font-size: 0.9rem; margin: 0;">Numer działki ewidencyjnej</p>
-            <p style="font-size: 1.3rem; font-weight: 600; color: #28a745; margin: 0.3rem 0 0 0; font-family: monospace;">{st.session_state.parcel_data['ID Działki']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
+    st.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
+    
+    if st.session_state.selected_parcels:
         show_3d_context = st.button(
             "Wygeneruj widok 3D otoczenia",
             key="generate_3d_button",
@@ -1168,23 +1475,45 @@ if st.session_state.show_search or st.session_state.map_center:
         if st.session_state.show_3d:
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 3rem 0 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
 
-            if 'map_theme' not in st.session_state: st.session_state.map_theme = "Jasny"
-            THEME_MAPPING = {"Jasny": "light", "Ciemny": "dark"}
+            all_coords = []
+            all_coords_wgs84 = []
+            for parcel in st.session_state.selected_parcels:
+                coords_2180 = parcel["Współrzędne EPSG:2180"]
+                coords_wgs84_single = transform_coordinates_to_wgs84(coords_2180)
+                all_coords.extend(coords_2180)
+                all_coords_wgs84.extend(coords_wgs84_single)
+            
+            avg_x = sum(p[0] for p in all_coords) / len(all_coords)
+            avg_y = sum(p[1] for p in all_coords) / len(all_coords)
+            map_center_lon, map_center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+            map_center = (map_center_lat, map_center_lon)
 
-            st.session_state.map_theme = st.radio(
-                "Wybierz motyw mapy:", options=["Jasny", "Ciemny"],
-                horizontal=True, key="map_theme_selector"
-            )
-
-            selected_map_style = THEME_MAPPING[st.session_state.map_theme]
+            selected_map_style = "light"
             with st.spinner("Generuję model 3D otoczenia..."):
-                parcel_poly_coords_lon_lat = [(p[1], p[0]) for p in coords_wgs84]
-                deck_3d_view = generate_3d_context_view(
-                    parcel_poly_coords_lon_lat, map_center, map_style=selected_map_style
-                )
+                all_parcel_coords_list = []
+                for parcel in st.session_state.selected_parcels:
+                    coords_wgs84_single = transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
+                    if len(coords_wgs84_single) > 0:
+                        first_point = coords_wgs84_single[0]
+                        last_point = coords_wgs84_single[-1]
+                        if first_point != last_point:
+                            coords_closed = coords_wgs84_single + [first_point]
+                        else:
+                            coords_closed = coords_wgs84_single
+                        single_parcel_coords = [(p[1], p[0]) for p in coords_closed]
+                        all_parcel_coords_list.append(single_parcel_coords)
+                
+                if all_parcel_coords_list:
+                    deck_3d_view = generate_3d_context_view_multiple_parcels(
+                        all_parcel_coords_list, map_center, map_style=selected_map_style
+                    )
+                else:
+                    deck_3d_view = generate_3d_context_view(
+                        [], map_center, map_style=selected_map_style
+                    )
                 if deck_3d_view:
                     st.markdown("""
-                    <div style="background: rgba(66, 165, 245, 0.1); border-left: 4px solid #42a5f5; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                    <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
                         <p style="margin: 0; color: #424242; font-size: 0.95rem;">
                             <strong>Sterowanie kamerą:</strong>
                             <strong>Obrót:</strong> Shift + przeciągnij |
@@ -1197,47 +1526,48 @@ if st.session_state.show_search or st.session_state.map_center:
 
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
 
-        st.markdown("""
-        <div style="text-align: center; margin: 10rem 0 3rem 0;">
-            <h2 style="font-size: 2.2rem; margin-bottom: 0.5rem;">Wybierz typ analizy</h2>
-            <p style="color: #616161; font-size: 1.05rem;">Kliknij jedną z opcji, aby rozpocząć szczegółową analizę</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        analysis_col1, analysis_col2 = st.columns(2, gap="large")
-
-        if 'selected_analysis' not in st.session_state:
-            st.session_state.selected_analysis = None
-
-        with analysis_col1:
+        if st.session_state.selected_parcels:
             st.markdown("""
-            <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(255,193,7,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
-                <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza Nasłonecznienia</h3>
-                <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
+            <div style="text-align: center; margin: 10rem 0 3rem 0;">
+                <h2 style="font-size: 2.2rem; margin-bottom: 0.5rem;">Wybierz typ analizy</h2>
+                <p style="color: #616161; font-size: 1.05rem;">Kliknij jedną z opcji, aby rozpocząć szczegółową analizę</p>
             </div>
             """, unsafe_allow_html=True)
+            
+            analysis_col1, analysis_col2 = st.columns(2, gap="large")
 
-            st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
+            if 'selected_analysis' not in st.session_state:
+                st.session_state.selected_analysis = None
 
-            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-            with col_btn2:
-                if st.button("Wybierz", key="select_solar", use_container_width=True):
-                    st.session_state.selected_analysis = "solar"
+            with analysis_col1:
+                st.markdown("""
+                <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(255,193,7,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza Nasłonecznienia</h3>
+                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
+                </div>
+                """, unsafe_allow_html=True)
 
-        with analysis_col2:
-            st.markdown("""
-            <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(33,150,243,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
-                <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza MPZP</h3>
-                <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Gemini 2.5 Pro)</p>
-            </div>
-            """, unsafe_allow_html=True)
+                st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
-            st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                with col_btn2:
+                    if st.button("Wybierz", key="select_solar", use_container_width=True):
+                        st.session_state.selected_analysis = "solar"
 
-            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-            with col_btn2:
-                if st.button("Wybierz", key="select_mpzp", use_container_width=True):
-                    st.session_state.selected_analysis = "mpzp"
+            with analysis_col2:
+                st.markdown("""
+                <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(33,150,243,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza MPZP</h3>
+                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Gemini 2.5 Pro)</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
+
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                with col_btn2:
+                    if st.button("Wybierz", key="select_mpzp", use_container_width=True):
+                        st.session_state.selected_analysis = "mpzp"
 
         if st.session_state.selected_analysis == "solar":
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #FFC107, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)
@@ -1264,12 +1594,88 @@ if st.session_state.show_search or st.session_state.map_center:
                 if start_date is None or end_date is None or start_date > end_date:
                     st.error("Proszę wybrać poprawny zakres dat.")
                 else:
+                    if not st.session_state.selected_parcels:
+                        st.error("Nie wybrano działek do analizy.")
+                        st.rerun()
+                    
+                    from shapely.geometry import Polygon as ShapelyPolygon
+                    from shapely.ops import unary_union
+                    import numpy as np
+                    
+                    shapely_polygons = []
+                    for parcel in st.session_state.selected_parcels:
+                        coords_2180 = parcel["Współrzędne EPSG:2180"]
+                        if len(coords_2180) >= 3:
+                            try:
+                                poly = ShapelyPolygon(coords_2180)
+                                if poly.is_valid:
+                                    shapely_polygons.append(poly)
+                                else:
+                                    fixed_poly = poly.buffer(0)
+                                    if not fixed_poly.is_empty:
+                                        shapely_polygons.append(fixed_poly)
+                            except:
+                                continue
+                    
+                    if shapely_polygons:
+                        if len(shapely_polygons) == 1:
+                            combined_parcel_polygon = shapely_polygons[0]
+                        else:
+                            combined_parcel_polygon = unary_union(shapely_polygons)
+                        
+                        if hasattr(combined_parcel_polygon, 'exterior'):
+                            combined_coords = list(combined_parcel_polygon.exterior.coords)
+                        else:
+                            if hasattr(combined_parcel_polygon, 'geoms'):
+                                largest_poly = max(combined_parcel_polygon.geoms, key=lambda p: p.area)
+                                combined_coords = list(largest_poly.exterior.coords)
+                            else:
+                                combined_coords = list(shapely_polygons[0].exterior.coords)
+                        
+                        combined_parcel_data = {
+                            "ID Działki": f"Połączone ({len(st.session_state.selected_parcels)} działek)",
+                            "Współrzędne EPSG:2180": combined_coords
+                        }
+                        st.session_state.parcel_data = combined_parcel_data
+                    else:
+                        primary_parcel = st.session_state.selected_parcels[0]
+                        st.session_state.parcel_data = primary_parcel
+                    
                     num_days = (end_date - start_date).days + 1
                     num_hours = hour_range[1] - hour_range[0] + 1
                     spinner_text = f"Przeprowadzam symulację dla {num_days} {'dzień' if num_days == 1 else 'dni'}, {num_hours} {'godzina' if num_hours == 1 else 'godzin'} (godz. {hour_range[0]}:00-{hour_range[1]}:00)..."
                     with st.spinner(spinner_text):
 
-                        gdf_buildings_wgs84 = ox.features_from_point((map_center[0], map_center[1]), {"building": True},
+                        if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
+                            coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
+                            if coords_2180 and len(coords_2180) > 0:
+                                avg_x = sum(p[0] for p in coords_2180) / len(coords_2180)
+                                avg_y = sum(p[1] for p in coords_2180) / len(coords_2180)
+                                center_lon, center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+                                analysis_map_center = (center_lat, center_lon)
+                            else:
+                                if 'map_center' in locals() or 'map_center' in globals():
+                                    analysis_map_center = map_center
+                                else:
+                                    if st.session_state.selected_parcels:
+                                        first_parcel_coords = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
+                                        avg_x = sum(p[0] for p in first_parcel_coords) / len(first_parcel_coords)
+                                        avg_y = sum(p[1] for p in first_parcel_coords) / len(first_parcel_coords)
+                                        center_lon, center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+                                        analysis_map_center = (center_lat, center_lon)
+                                    else:
+                                        analysis_map_center = (53.4285, 14.5511)
+                        else:
+                            if st.session_state.selected_parcels:
+                                first_parcel_coords = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
+                                avg_x = sum(p[0] for p in first_parcel_coords) / len(first_parcel_coords)
+                                avg_y = sum(p[1] for p in first_parcel_coords) / len(first_parcel_coords)
+                                center_lon, center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+                                analysis_map_center = (center_lat, center_lon)
+                            else:
+                                analysis_map_center = (53.4285, 14.5511)
+
+                        gdf_buildings_wgs84 = ox.features_from_point((analysis_map_center[0], analysis_map_center[1]), {"building": True},
                                                                      dist=350)
                         gdf_buildings_metric = gdf_buildings_wgs84.to_crs("epsg:2180")
 
@@ -1296,9 +1702,19 @@ if st.session_state.show_search or st.session_state.map_center:
                                 for p in polys: buildings_data_metric.append(
                                     {"polygon": list(p.exterior.coords), "height": building.height})
 
-                        coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
-                        parcel_poly_2180 = Polygon(coords_2180)
-                        grid_points_2180 = create_analysis_grid(parcel_poly_2180, density=1.0)
+                        if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
+                            coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
+                            parcel_poly_2180 = Polygon(coords_2180)
+                            grid_points_2180 = create_analysis_grid(parcel_poly_2180, density=1.0)
+                        else:
+                            if st.session_state.selected_parcels:
+                                coords_2180 = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
+                                parcel_poly_2180 = Polygon(coords_2180)
+                                grid_points_2180 = create_analysis_grid(parcel_poly_2180, density=1.0)
+                            else:
+                                st.error("Nie wybrano działki do analizy.")
+                                st.session_state.solar_analysis_results = None
+                                st.rerun()
 
                         if grid_points_2180.size > 0:
                             buildings_data_for_cache = tuple(
@@ -1308,11 +1724,14 @@ if st.session_state.show_search or st.session_state.map_center:
                             total_sunlit_hours = np.zeros(len(grid_points_2180))
                             date_range = pd.date_range(start_date, end_date)
 
+                            total_sunlit_hours = np.zeros(len(grid_points_2180))
+                            date_range = pd.date_range(start_date, end_date)
+
                             for single_date in date_range:
                                 total_sunlit_hours += run_solar_simulation(
                                     buildings_data_for_cache,
                                     grid_points_2180,
-                                    map_center[0], map_center[1], single_date,
+                                    analysis_map_center[0], analysis_map_center[1], single_date,
                                     hour_range
                                 )
 
@@ -1324,14 +1743,14 @@ if st.session_state.show_search or st.session_state.map_center:
                             results_df['sun_hours'] = average_sunlit_hours
                             viz_date = date_range[len(date_range) // 2]
                             map_center_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True).transform(
-                                map_center[1], map_center[0])
+                                analysis_map_center[1], analysis_map_center[0])
 
                             sun_paths, analemmas, azimuth_markers, azimuth_lines = generate_complete_sun_path_diagram(
-                                map_center[0], map_center[1], viz_date.year, map_center_metric
+                                analysis_map_center[0], analysis_map_center[1], viz_date.year, map_center_metric
                             )
 
                             sun_position_markers = []
-                            location = pvlib.location.Location(map_center[0], map_center[1], tz='Europe/Warsaw')
+                            location = pvlib.location.Location(analysis_map_center[0], analysis_map_center[1], tz='Europe/Warsaw')
 
                             for single_date in date_range:
                                 for hour in range(hour_range[0], hour_range[1] + 1):
@@ -1362,7 +1781,8 @@ if st.session_state.show_search or st.session_state.map_center:
                                                                        "analemmas": analemmas,
                                                                        "azimuth_markers": azimuth_markers,
                                                                        "azimuth_lines": azimuth_lines,
-                                                                       "sun_position_markers": sun_position_markers}
+                                                                       "sun_position_markers": sun_position_markers,
+                                                                       "analysis_map_center": analysis_map_center}
                         else:
                             st.session_state.solar_analysis_results = None
                 st.rerun()
@@ -1396,45 +1816,34 @@ if st.session_state.show_search or st.session_state.map_center:
 
                     analemmas_segments = {}
 
-                    all_segments = []
                     for hour, ana_data in data['analemmas'].items():
+                        sorted_ana_data = sorted(ana_data, key=lambda x: x['day'])
+                        
                         ana_wgs = []
-                        for point_data in ana_data:
+                        for point_data in sorted_ana_data:
                             coords = point_data['coords']
                             wgs_coords = transformer_to_wgs.transform(coords[0], coords[1]) + (coords[2],)
                             ana_wgs.append(wgs_coords)
 
+                        hour_segments = []
                         for i in range(len(ana_wgs) - 1):
-                            source = np.array(ana_wgs[i])
-                            target = np.array(ana_wgs[i + 1])
-                            length = np.linalg.norm(target - source)
-
-                            all_segments.append({
-                                "source": ana_wgs[i],
-                                "target": ana_wgs[i + 1],
-                                "length": length,
+                            source = ana_wgs[i]
+                            target = ana_wgs[i + 1]
+                            
+                            hour_segments.append({
+                                "source": source,
+                                "target": target,
                                 "hour": hour
                             })
 
-                    if len(all_segments) > 0:
-                        all_lengths = [s['length'] for s in all_segments]
-                        median_length = np.median(all_lengths)
-                        min_length = np.min(all_lengths)
+                        if len(ana_wgs) > 1:
+                            hour_segments.append({
+                                "source": ana_wgs[-1],
+                                "target": ana_wgs[0],
+                                "hour": hour
+                            })
 
-                        max_allowed_length = median_length * 2
-
-                        for hour in data['analemmas'].keys():
-                            filtered = [
-                                {"source": s["source"], "target": s["target"], "hour": s["hour"]}
-                                for s in all_segments
-                                if s['hour'] == hour
-                                and s['length'] <= max_allowed_length
-                                and s['source'][2] >= 0  # source Z >= 0
-                                and s['target'][2] >= 0  # target Z >= 0
-                            ]
-                            analemmas_segments[hour] = filtered
-                    else:
-                        analemmas_segments = {hour: [] for hour in data['analemmas'].keys()}
+                        analemmas_segments[hour] = hour_segments
 
                     azimuth_markers_wgs84 = []
                     for am in data['azimuth_markers']:
@@ -1529,8 +1938,13 @@ if st.session_state.show_search or st.session_state.map_center:
                         sun_markers_layer,
                     ]
 
+                    stored_result = st.session_state.solar_analysis_results
+                    if 'analysis_map_center' in stored_result:
+                        display_map_center = stored_result['analysis_map_center']
+                    else:
+                        display_map_center = (53.4285, 14.5511)
                     r = pdk.Deck(layers=all_layers,
-                                 initial_view_state=pdk.ViewState(latitude=map_center[0], longitude=map_center[1],
+                                 initial_view_state=pdk.ViewState(latitude=display_map_center[0], longitude=display_map_center[1],
                                                                   zoom=17.5, pitch=50, bearing=0),
                                  map_style=None)
 
@@ -1561,12 +1975,17 @@ if st.session_state.show_search or st.session_state.map_center:
             if st.session_state.mpzp_analysis_started and not st.session_state.get('analysis_results'):
                 st.info("Agent AI uruchomiony - pobieram dokumenty i analizuję...")
                 try:
-                    results = run_ai_agent_flow(st.session_state.parcel_data['ID Działki'])
-                    if results:
-                        st.session_state.analysis_results = results
-                        st.success("Analiza zakończona!")
+                    if st.session_state.selected_parcels:
+                        primary_parcel_id = st.session_state.selected_parcels[0]['ID Działki']
+                        results = run_ai_agent_flow(primary_parcel_id)
+                        if results:
+                            st.session_state.analysis_results = results
+                            st.success("Analiza zakończona!")
+                        else:
+                            st.error("Nie udało się pobrać wyników analizy.")
+                            st.session_state.mpzp_analysis_started = False
                     else:
-                        st.error("Nie udało się pobrać wyników analizy.")
+                        st.error("Nie wybrano żadnych działek do analizy.")
                         st.session_state.mpzp_analysis_started = False
                 except Exception as e:
                     st.error(f"Błąd podczas analizy: {str(e)}")
