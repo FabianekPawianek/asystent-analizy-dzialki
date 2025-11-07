@@ -22,4 +22,3 @@ pvlib
 rtree
 pytesseract
 Pillow
-tesseract-ocr
