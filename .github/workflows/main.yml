@@ -16,4 +16,4 @@ jobs:
       - name: Push to hub
         env: 
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          run: | git push https://FabianekPawianek:$HF_TOKEN@huggingface.co/spaces/FabianekPawianek/asystent-analizy-dzialek main
+          run: git push https://FabianekPawianek:$HF_TOKEN@huggingface.co/spaces/FabianekPawianek/asystent-analizy-dzialek main
