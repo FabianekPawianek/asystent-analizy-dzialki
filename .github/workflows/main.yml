@@ -16,4 +16,10 @@ jobs:
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run:  git push https://FabianekPawianek:$HF_TOKEN@huggingface.co/spaces/FabianekPawianek/asystent-analizy-dzialki main && git push hf main --force
+        run: |
+        git push https://FabianekPawianek:$HF_TOKEN@huggingface.co/spaces/FabianekPawianek/asystent-analizy-dzialki main 
+        git fetch hf
+        git checkout -B hf-main hf/main || git checkout -b hf-main hf/main
+        git checkout main
+        git merge hf-main --allow-unrelated-histories
+        git push hf main --force
