@@ -17,7 +17,13 @@ jobs:
             # Remove files that you don't want to sync to Hugging Face Spaces
             # or blocked by Hugging Face Spaces.
             - name: Remove bad files
-              run: rm -rf my-bad-files
+              run: |
+                rm -rf .git
+                rm -rf .github
+                rm -rf __pycache__
+                rm -rf .pytest_cache
+                rm -rf *.pyc
+                rm -rf .gitignore
 
             - name: Sync to Hugging Face Spaces
               uses: JacobLinCool/huggingface-sync@v1
