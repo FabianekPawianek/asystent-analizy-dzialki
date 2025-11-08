@@ -1,34 +1,33 @@
 name: Sync to Hugging Face Spaces
-
 on:
-    push:
-        branches:
-            - main
+  push:
+    branches:
+      - main
 
 jobs:
-    sync:
-        name: Sync
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Checkout Repository
-              uses: actions/checkout@v3
-
-            # Remove files that you don't want to sync to Hugging Face Spaces
-            # or blocked by Hugging Face Spaces.
-            - name: Remove bad files
-              run: |
-                rm -rf .git
-                rm -rf .github
-                rm -rf __pycache__
-                rm -rf .pytest_cache
-                rm -rf *.pyc
-                rm -rf .gitignore
-
-            - name: Sync to Hugging Face Spaces
-              uses: JacobLinCool/huggingface-sync@v1
-              with:
-                  github: ${{ secrets.GITHUB_TOKEN }}
-                  user: FabianekPawianek # Hugging Face username or organization name
-                  space: asystent-analizy-dzialki # Hugging Face space name
-                  token: ${{ secrets.HF_TOKEN }} # Hugging Face token
+  sync:
+    name: Sync
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+      
+      - name: Remove bad files
+        run: |
+          rm -rf .git
+          rm -rf .github
+          rm -rf __pycache__
+          rm -rf .pytest_cache
+          rm -rf *.pyc
+          rm -rf .gitignore
+      
+      - name: Sync to Hugging Face Space
+        uses: alex-bene/huggingface-space-sync-action@v0.1
+        with:
+          github_repo_id: ${{ github.repository }}
+          github_branch: main
+          yaml_header_path: headers.yaml
+          huggingface_repo_id: FabianekPawianek/asystent-analizy-dzialki
+          hf_username: FabianekPawianek
+          hf_token: ${{ secrets.HF_TOKEN }}
