@@ -32,3 +32,13 @@ jobs:
                   user: FabianekPawianek # Hugging Face username or organization name
                   space: asystent-analizy-dzialki # Hugging Face space name
                   token: ${{ secrets.HF_TOKEN }} # Hugging Face token
+                  configuration: |
+                    ---
+                    title: Asystent Analizy Działki
+                    emoji: 🏡
+                    colorFrom: blue
+                    colorTo: green
+                    sdk: docker
+                    app_port: 7860
+                    pinned: false
+                    ---
