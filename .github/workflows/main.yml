@@ -3,15 +3,18 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  sync:
-    name: Sync
+  sync-to-hub:
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
       
       - name: Remove bad files
         run: |
@@ -19,15 +22,39 @@ jobs:
           rm -rf .github
           rm -rf __pycache__
           rm -rf .pytest_cache
-          rm -rf *.pyc
+          find . -name "*.pyc" -delete
           rm -rf .gitignore
       
-      - name: Sync to Hugging Face Space
-        uses: alex-bene/huggingface-space-sync-action@v0.1
-        with:
-          github_repo_id: ${{ github.repository }}
-          github_branch: main
-          yaml_header_path: headers.yaml
-          huggingface_repo_id: FabianekPawianek/asystent-analizy-dzialki
-          hf_username: FabianekPawianek
-          hf_token: ${{ secrets.HF_TOKEN }}
+      - name: Add HF metadata to README
+        run: |
+          cat > README_HF.md << 'EOF'
+          ---
+          title: Asystent Analizy Działki
+          emoji: 🏡
+          colorFrom: blue
+          colorTo: green
+          sdk: docker
+          app_port: 7860
+          pinned: false
+          ---
+          EOF
+          
+          if [ -f README.md ]; then
+            cat README.md >> README_HF.md
+          else
+            echo "# Asystent Analizy Działki" >> README_HF.md
+            echo "Inteligentna aplikacja do analizy działek." >> README_HF.md
+          fi
+          
+          mv README_HF.md README.md
+      
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git init
+          git add .
+          git commit -m "Sync from GitHub"
+          git push --force https://FabianekPawianek:$HF_TOKEN@huggingface.co/spaces/FabianekPawianek/asystent-analizy-dzialki main
