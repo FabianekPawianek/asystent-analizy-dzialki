@@ -2,7 +2,6 @@ import streamlit as st
 import time
 import json
 import requests
-import fitz
 import folium
 import osmnx as ox
 import pandas as pd
@@ -17,237 +16,51 @@ from shapely.ops import transform
 from streamlit_folium import st_folium
 from pyproj import Transformer
 from urllib.parse import quote_plus
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.action_chains import ActionChains
-import vertexai
-from vertexai.generative_models import GenerativeModel, Part
-from langchain_google_vertexai import VertexAIEmbeddings, VertexAI
 import platform
 import os
+import config
+import modules.geospatial as geospatial
+import modules.solar as solar
+import modules.visualization as visualization
+import modules.mpzp_agent as mpzp_agent
 
-if platform.system() == 'Windows':
-    possible_paths = [
-        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-        r'C:\Users\{}\AppData\Local\Tesseract-OCR\tesseract.exe'.format(os.getenv('USERNAME', ''))
-    ]
-    for path in possible_paths:
-        if os.path.exists(path):
-            try:
-                import pytesseract
-                pytesseract.pytesseract.tesseract_cmd = path
-                break
-            except ImportError:
-                pass
+# Setup Tesseract
+config.setup_tesseract()
 
-PROJECT_ID = None
-LOCATION = "us-central1"
-MODEL_NAME = "gemini-2.5-pro"
-EMBEDDING_MODEL_NAME = "text-embedding-004"
-
-import json
-import tempfile
-
-credentials_configured = False
-
-if os.getenv('GCP_CREDENTIALS'):
-    try:
-        credentials_json = os.getenv('GCP_CREDENTIALS')
-        credentials_dict = json.loads(credentials_json)
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(credentials_dict, f)
-            credentials_path = f.name
-
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-        credentials_configured = True
-        
-        PROJECT_ID = credentials_dict.get('project_id')
-    except Exception as e:
-        st.error(f"Failed to load GCP credentials: {e}")
-
-elif os.getenv('type') == 'service_account':
-    try:
-        credentials_dict = {
-            'type': os.getenv('type'),
-            'project_id': os.getenv('project_id'),
-            'private_key_id': os.getenv('private_key_id'),
-            'private_key': os.getenv('private_key'),
-            'client_email': os.getenv('client_email'),
-            'client_id': os.getenv('client_id'),
-            'auth_uri': os.getenv('auth_uri'),
-            'token_uri': os.getenv('token_uri'),
-            'auth_provider_x509_cert_url': os.getenv('auth_provider_x509_cert_url'),
-            'client_x509_cert_url': os.getenv('client_x509_cert_url'),
-            'universe_domain': os.getenv('universe_domain', 'googleapis.com')
-        }
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(credentials_dict, f)
-            credentials_path = f.name
-
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-        credentials_configured = True
-        
-        PROJECT_ID = os.getenv('project_id')
-    except Exception as e:
-        st.error(f"Failed to load credentials from environment variables: {e}")
-
-elif 'gcp_service_account' in st.secrets:
-    try:
-        credentials_dict = dict(st.secrets['gcp_service_account'])
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(credentials_dict, f)
-            credentials_path = f.name
-
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-        credentials_configured = True
-        
-        PROJECT_ID = credentials_dict.get('project_id')
-    except Exception as e:
-        st.error(f"Failed to load Streamlit secrets: {e}")
-
-if not credentials_configured:
-    st.error("Google Cloud credentials not configured. Please add GCP_CREDENTIALS to Space secrets.")
+# Setup GCP Credentials
+try:
+    PROJECT_ID = config.setup_gcp_credentials(st.secrets)
+    mpzp_agent.init_ai(PROJECT_ID)
+except Exception as e:
+    st.error(str(e))
     st.info("See Settings → Variables and secrets → Add a new secret")
     st.stop()
 
-vertexai.init(project=PROJECT_ID, location=LOCATION)
-generative_model = GenerativeModel(MODEL_NAME)
-embeddings_model = VertexAIEmbeddings(model_name=EMBEDDING_MODEL_NAME)
-llm = VertexAI(model_name=MODEL_NAME)
 
 
-def geocode_address_to_coords(address):
-    nominatim_url = f"https://nominatim.openstreetmap.org/search?q={quote_plus(address)}&format=json&limit=1&countrycodes=pl"
-    headers = {'User-Agent': 'AsystentAnalizyDzialki/2.2'}
-    response = requests.get(nominatim_url, headers=headers, timeout=15)
-    response.raise_for_status()
-    geodata = response.json()
-    if not geodata: return None, "Nie znaleziono współrzędnych dla podanego adresu."
-    return (float(geodata[0]['lat']), float(geodata[0]['lon'])), None
-
-
-def get_parcel_by_id(parcel_id):
-    uldk_url = f"https://uldk.gugik.gov.pl/?request=GetParcelById&id={parcel_id}&result=geom_wkt"
-    response = requests.get(uldk_url, timeout=15)
-    response.raise_for_status()
-    responseText = response.text.strip()
-    if responseText.startswith(
-        '-1'): return None, f"Błąd wewnętrzny: Nie znaleziono danych dla działki o ID: {parcel_id}."
-    wkt_geom_raw = responseText.split('\n')[1].strip()
-    if 'SRID=' in wkt_geom_raw: wkt_geom_raw = wkt_geom_raw.split(';', 1)[1]
-    coords_str = wkt_geom_raw.replace('POLYGON((', '').replace('))', '')
-    coords_pairs = [pair.split() for pair in coords_str.split(',')]
-    coords_2180 = [[float(x), float(y)] for x, y in coords_pairs]
-    return {"ID Działki": parcel_id, "Współrzędne EPSG:2180": coords_2180}, None
-
-
-def get_parcel_from_coords(lat, lon):
-    try:
-        transformer = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
-        x, y = transformer.transform(lon, lat)
-        identify_url = f"https://uldk.gugik.gov.pl/?request=GetParcelByXY&xy={x},{y}&result=id"
-        response_id = requests.get(identify_url, timeout=15)
-        response_id.raise_for_status()
-        id_text = response_id.text.strip()
-        if id_text.startswith('-1') or len(id_text.split(
-            '\n')) < 2: return None, "W tym miejscu nie zidentyfikowano działki. Spróbuj kliknąć precyzyjniej."
-        parcel_id = id_text.split('\n')[1].strip()
-        return get_parcel_by_id(parcel_id)
-    except Exception as e:
-        return None, f"Błąd identyfikacji działki: {e}"
-
-
-def transform_coordinates_to_wgs84(coords_2180):
-    transformer = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
-    return [[transformer.transform(x, y)[1], transformer.transform(x, y)[0]] for x, y in coords_2180]
-
-
-def transform_single_coord(x, y, source_crs, target_crs):
-    """
-    Transform a single coordinate from one CRS to another.
-    Returns (longitude, latitude) for WGS84 or (x, y) for metric systems.
-    """
-    transformer = Transformer.from_crs(f"EPSG:{source_crs}", f"EPSG:{target_crs}", always_xy=True)
-    lon, lat = transformer.transform(x, y)
-    return lon, lat
 
 
 def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center_wgs_84, map_style: str):
     """Generate 3D context view that shows multiple parcels as separate entities"""
     try:
-        tags = {"building": True}
-        gdf_buildings = ox.features_from_point(
-            (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=300
+        # This function is now a wrapper around visualization.create_solar_analysis_layers
+        # It handles the specific case of just showing the context (no solar results yet)
+        
+        layers, buildings_data = visualization.create_solar_analysis_layers(
+            parcel_coords_wgs_84=all_parcel_coords_list, # Pass the full list of parcels
+            map_center_wgs_84=map_center_wgs_84
         )
-        buildings_data_for_pydeck = []
-        if not gdf_buildings.empty:
-            def estimate_height(row):
-                try:
-                    if 'height' in row and row['height'] and str(row['height']).strip(): return float(str(row['height']).split(';')[0])
-                    if 'building:levels' in row and row['building:levels'] and str(row['building:levels']).strip(): return float(str(row['building:levels']).split(';')[0]) * 3.5 + 2
-                except (ValueError, TypeError): pass
-                return 10.0
-            gdf_buildings['height'] = pd.to_numeric(gdf_buildings.apply(estimate_height, axis=1), errors='coerce').fillna(10.0)
-            for _, building in gdf_buildings.iterrows():
-                if building.geometry and building.geometry.geom_type in ['Polygon', 'MultiPolygon']:
-                    polygons = [building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
-                    for poly in polygons: buildings_data_for_pydeck.append({"polygon": [list(poly.exterior.coords)], "height": float(building.height)})
-        else:
-             st.info("Nie znaleziono danych o budynkach w okolicy w bazie OpenStreetMap.")
         
-        layer_buildings = pdk.Layer("PolygonLayer", data=buildings_data_for_pydeck, get_polygon="polygon", extruded=True, wireframe=True, get_elevation="height", get_fill_color=[180, 180, 180, 200], get_line_color=[100, 100, 100])
-        
-        all_parcel_data = []
-        for i, single_parcel_coords in enumerate(all_parcel_coords_list):
-            if len(single_parcel_coords) >= 3:
-                try:
-                    polygon_shape = Polygon(single_parcel_coords)
-                    exterior_coords = list(polygon_shape.exterior.coords)
-                    all_parcel_data.append({"polygon": [exterior_coords], "height": 1.0})
-                except Exception as e:
-                    st.warning(f"Nie można dodać działki #{i} do wizualizacji 3D: {e}")
-                    continue
-        
-        if all_parcel_data:
-            layer_parcels = pdk.Layer(
-                "PolygonLayer", 
-                data=all_parcel_data, 
-                get_polygon="polygon", 
-                extruded=False,
-                get_elevation="height", 
-                filled=False,
-                get_line_color=[40, 167, 69, 255],
-                get_line_width=1,
-                line_width_min_pixels=1
-            )
-        else:
-            layer_parcels = pdk.Layer(
-                "PolygonLayer", 
-                data=[], 
-                get_polygon="polygon", 
-                extruded=False, 
-                get_elevation="height", 
-                filled=False, 
-                get_line_color=[40, 167, 69, 255],
-                get_line_width=1, 
-                line_width_min_pixels=1
-            )
-
-        view_state = pdk.ViewState(latitude=map_center_wgs_84[0], longitude=map_center_wgs_84[1], zoom=17.5, pitch=50, bearing=0)
-        
-        layers_to_render = [layer_parcels]
-        if buildings_data_for_pydeck: layers_to_render.append(layer_buildings)
+        view_state = pdk.ViewState(
+            latitude=map_center_wgs_84[0],
+            longitude=map_center_wgs_84[1],
+            zoom=17.5,
+            pitch=50,
+            bearing=0
+        )
 
         return pdk.Deck(
-            layers=layers_to_render,
+            layers=layers,
             initial_view_state=view_state,
             map_style=map_style
         )
@@ -257,6 +70,7 @@ def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center
         import traceback
         st.text(traceback.format_exc())
         return None
+
 
 
 def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_style: str):
@@ -357,153 +171,13 @@ def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style:
 
 
 def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
-    scene = trimesh.Scene()
-    polygons_added = 0
-    failed_reasons = {"invalid_poly": 0, "triangulation_failed": 0, "validation_failed": 0, "exception": 0}
+    return solar.create_trimesh_scene(buildings_data_metric)
 
-
-    for building_dict in buildings_data_metric:
-        try:
-            coords = building_dict['polygon']
-            if len(coords) > 1:
-                first = np.array(coords[0]) if not isinstance(coords[0], np.ndarray) else coords[0]
-                last = np.array(coords[-1]) if not isinstance(coords[-1], np.ndarray) else coords[-1]
-                if np.allclose(first, last, rtol=1e-9):
-                    coords = coords[:-1]
-
-            if len(coords) < 3:
-                failed_reasons["invalid_poly"] += 1
-                continue
-
-            poly = Polygon(coords)
-            if not poly.is_valid:
-                poly = poly.buffer(0)
-            if poly.is_empty or not poly.is_valid or poly.area < 1.0:
-                failed_reasons["invalid_poly"] += 1
-                continue
-
-            height = building_dict['height']
-
-            try:
-                mesh = trimesh.creation.extrude_polygon(poly, height=height)
-
-                if mesh is None or len(mesh.faces) == 0:
-                    failed_reasons["triangulation_failed"] += 1
-                    continue
-
-            except Exception as extrude_error:
-                failed_reasons["triangulation_failed"] += 1
-                continue
-
-            if not mesh.is_watertight:
-                try:
-                    trimesh.repair.fix_normals(mesh)
-                    trimesh.repair.fill_holes(mesh)
-                except Exception:
-                    pass
-
-            if len(mesh.faces) > 0 and len(mesh.vertices) > 0:
-                scene.add_geometry(mesh)
-                polygons_added += 1
-            else:
-                failed_reasons["validation_failed"] += 1
-
-        except Exception as e:
-            failed_reasons["exception"] += 1
-            continue
-
-    if polygons_added == 0:
-        st.warning(f"Nie udało się dodać budynków do sceny 3D.")
-
-    return scene
-
-def value_to_rgb(value, min_val, max_val, colormap='plasma'):
-    if max_val == min_val:
-        norm_value = 0.5
-    else:
-        norm_value = (value - min_val) / (max_val - min_val)
-
-    from matplotlib import cm
-    rgba = cm.get_cmap(colormap)(norm_value)
-    return [int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255), 200]
-
-
-def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
-    from matplotlib import cm
-
-    if min_val == max_val:
-        rgba = cm.get_cmap(colormap)(0.5)
-        rgb = f"rgb({int(rgba[0] * 255)}, {int(rgba[1] * 255)}, {int(rgba[2] * 255)})"
-        label = f"{min_val:.1f}h"
-        header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
-        title = "<div style='margin-bottom: 8px;'><b>Śr. dzienne nasłonecznienie</b></div>"
-        content = f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 20px; background: {rgb};'></div><div>{label}</div></div>"
-        return f"{header}{title}{content}</div>"
-
-    values = np.linspace(min_val, max_val, steps)
-    colors = cm.get_cmap(colormap)(np.linspace(0, 0.92, steps))
-    header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
-    title = "<div style='margin-bottom: 8px;'><b>Śr. dzienne nasłonecznienie</b></div>"
-    content = "<div style='display: flex; flex-direction: row; align-items: center; justify-content: space-between;'>"
-
-    for i in range(steps):
-        rgb = f"rgb({int(colors[i][0] * 255)}, {int(colors[i][1] * 255)}, {int(colors[i][2] * 255)})"
-        label = f"{values[i]:.1f}h"
-        content += f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 20px; background: {rgb};'></div><div>{label}</div></div>"
-
-    return f"{header}{title}{content}</div></div>"
 
 
 def generate_sun_path_data(lat: float, lon: float, analysis_date: datetime.date, hour_range: tuple,
                            map_center_metric: tuple):
-    path_radius = 300
-    start_hour, end_hour = hour_range
-    center_x, center_y = map_center_metric[0], map_center_metric[1]
-    tz = 'Europe/Warsaw'
-
-    times = pd.date_range(
-        start=f"{analysis_date} {start_hour:02d}:00",
-        end=f"{analysis_date} {end_hour:02d}:00",
-        freq="15min",
-        tz=tz
-    )
-
-    location = pvlib.location.Location(lat, lon, tz=tz)
-    solar_position = location.get_solarposition(times)
-    solar_position = solar_position[solar_position['apparent_elevation'] > 0]
-
-    sun_path_line = []
-    for index, sun in solar_position.iterrows():
-        alt_rad = np.deg2rad(sun['apparent_elevation'])
-        az_rad = np.deg2rad(sun['azimuth'])
-
-        x_offset = path_radius * np.cos(alt_rad) * np.sin(az_rad)
-        y_offset = path_radius * np.cos(alt_rad) * np.cos(az_rad)
-        z = path_radius * np.sin(alt_rad)
-        sun_path_line.append([center_x + x_offset, center_y + y_offset, z])
-
-    hourly_times = pd.date_range(
-        start=f"{analysis_date} {start_hour:02d}:00",
-        end=f"{analysis_date} {end_hour-1:02d}:00",
-        freq="H",
-        tz=tz
-    )
-    hourly_position = location.get_solarposition(hourly_times)
-    hourly_position = hourly_position[hourly_position['apparent_elevation'] > 5]
-
-    sun_hour_markers = []
-    for index, sun in hourly_position.iterrows():
-        alt_rad = np.deg2rad(sun['apparent_elevation'])
-        az_rad = np.deg2rad(sun['azimuth'])
-        x_offset = path_radius * np.cos(alt_rad) * np.sin(az_rad)
-        y_offset = path_radius * np.cos(alt_rad) * np.cos(az_rad)
-        z = path_radius * np.sin(alt_rad)
-        sun_hour_markers.append({
-            "position": [center_x + x_offset, center_y + y_offset, z],
-            "hour": f"{index.hour}:00"
-        })
-
-    return sun_path_line, sun_hour_markers
+    return solar.generate_sun_path_geometry(lat, lon, analysis_date, hour_range, map_center_metric)
 
 
 def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_center_metric: tuple):
@@ -620,17 +294,10 @@ def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_ce
 
 
 def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.ndarray:
-    bounds = parcel_polygon.bounds
-    min_x, min_y, max_x, max_y = bounds
-    x_coords = np.arange(min_x, max_x, density); y_coords = np.arange(min_y, max_y, density)
-    mesh_x, mesh_y = np.meshgrid(x_coords, y_coords)
-    points = np.vstack([mesh_x.ravel(), mesh_y.ravel()]).T
-    from shapely.geometry import Point; from shapely.prepared import prep
-    prepared_polygon = prep(parcel_polygon)
-    contained_mask = [prepared_polygon.contains(Point(p)) for p in points]
-    final_points = points[contained_mask]
-    return np.hstack([final_points, np.full((len(final_points), 1), 0.1)])
+    return solar.create_analysis_grid(parcel_polygon, density)
 
+
+import modules.solar as solar
 
 @st.cache_data
 def run_solar_simulation(
@@ -644,270 +311,23 @@ def run_solar_simulation(
         {'polygon': b_tuple[0], 'height': b_tuple[1]} for b_tuple in _buildings_data_metric_tuple
     ]
 
-    scene = create_trimesh_scene(buildings_data_metric)
-    start_hour, end_hour = hour_range
-    tz = 'Europe/Warsaw'
-
-    sunlit_hours = np.zeros(len(grid_points_metric))
-
-    times = pd.date_range(
-        start=f"{analysis_date} {start_hour:02d}:00",
-        end=f"{analysis_date} {end_hour:02d}:00",
-        freq="15min", tz=tz
-    )
-    location = pvlib.location.Location(lat, lon, tz=tz)
-    solar_position = location.get_solarposition(times)
-    solar_position_above_horizon = solar_position[solar_position['apparent_elevation'] > 0]
-
+    # 1. Create Scene
+    scene = solar.create_trimesh_scene(buildings_data_metric)
+    
     if scene.is_empty:
-        total_sun_periods_in_range = len(solar_position_above_horizon)
-        st.warning(
-            "Nie udało się wygenerować geometrii 3D otoczenia. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
-        return np.full(len(grid_points_metric), total_sun_periods_in_range * 0.25)
-
-    combined_mesh = scene.dump(concatenate=True)
-    if not isinstance(combined_mesh, trimesh.Trimesh):
-        st.warning("Błąd podczas łączenia geometrii 3D. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
-        total_sun_periods_in_range = len(solar_position_above_horizon)
-        return np.full(len(grid_points_metric), total_sun_periods_in_range * 0.25)
-
-    for _, sun_pos in solar_position_above_horizon.iterrows():
-        alt_rad = np.deg2rad(sun_pos['apparent_elevation'])
-        az_rad = np.deg2rad(sun_pos['azimuth'])
-
-        sun_direction = np.array([
-            np.cos(alt_rad) * np.sin(az_rad),
-            np.cos(alt_rad) * np.cos(az_rad),
-            np.sin(alt_rad)
-        ])
-
-        ray_origins = grid_points_metric
-        ray_directions = np.tile(sun_direction, (len(ray_origins), 1))
-
-        max_ray_distance = 500.0
-        locations, index_ray, _ = combined_mesh.ray.intersects_location(
-            ray_origins=ray_origins,
-            ray_directions=ray_directions,
-            multiple_hits=False
-        )
-
-        is_lit = np.ones(len(ray_origins), dtype=bool)
-        if len(locations) > 0:
-            distances = np.linalg.norm(locations - ray_origins[index_ray], axis=1)
-            valid_hits = distances < max_ray_distance
-            shadowed_ray_indices = np.unique(index_ray[valid_hits])
-            is_lit[shadowed_ray_indices] = False
-
-        sunlit_hours += is_lit * 0.25
-
+        st.warning("Nie udało się wygenerować geometrii 3D otoczenia. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
+    
+    # 2. Calculate Sun Positions
+    sun_positions = solar.calculate_sun_positions(lat, lon, analysis_date, hour_range)
+    
+    # 3. Calculate Shadows
+    sunlit_hours = solar.calculate_shadows(scene, grid_points_metric, sun_positions)
+    
     return sunlit_hours
 
 
-def perform_ai_step(driver, model, goal_prompt):
-    st.info(f" **Cel:** {goal_prompt}")
-    screenshot_bytes = driver.get_screenshot_as_png()
-    prompt = f"Cel: '{goal_prompt}'. Odpowiedz w JSON, podając `element_text` do kliknięcia."
-    response = model.generate_content([Part.from_data(screenshot_bytes, mime_type="image/png"), prompt])
-    try:
-        ai_response_text = response.text.strip().replace("```json", "").replace("```", "")
-        return json.loads(ai_response_text).get("element_text"), None
-    except Exception as e:
-        return None, f"Błąd przetwarzania AI: {e}. Odpowiedź: {response.text}"
 
 
-def extract_links_by_clicking(driver, wait):
-    st.info(" **Cel:** Błyskawiczna ekstrakcja linków.")
-    extracted_links = {}
-    links_to_find = ["Ustalenia ogólne", "Ustalenia morfoplastyczne", "Ustalenia szczegółowe", "Ustalenia końcowe"]
-    original_window = driver.current_window_handle
-
-    for label in links_to_find:
-        link_locator = (By.XPATH, f"//td/div[text()='{label}']/parent::td/following-sibling::td//a")
-        found_links = driver.find_elements(*link_locator)
-
-        if found_links:
-            link_to_click = found_links[0]
-            try:
-                driver.execute_script("arguments[0].click();", link_to_click)
-                wait.until(EC.number_of_windows_to_be(2))
-                new_window = [w for w in driver.window_handles if w != original_window][0]
-                driver.switch_to.window(new_window)
-                extracted_links[label] = driver.current_url
-                st.success(f"Pobrano link: {label}")
-                driver.close()
-                driver.switch_to.window(original_window)
-                time.sleep(1)
-            except Exception as e:
-                st.warning(f"Błąd podczas klikania w link dla '{label}': {e}")
-        else:
-            st.write(f"Link dla '{label}' nie istnieje na stronie. Pomijam.")
-
-    return extracted_links
-
-
-def analyze_documents_with_ai(_links_tuple, parcel_id):
-    links_dict = dict(_links_tuple)
-    results = {'ogolne': {}, 'szczegolowe': {}}
-    docs_content = {}
-
-    for label, url in links_dict.items():
-        try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-
-            with fitz.open(stream=response.content, filetype="pdf") as doc:
-                extracted_text = ""
-                for page in doc:
-                    page_text = page.get_text()
-                    if page_text:
-                        extracted_text += page_text + "\n"
-
-                if len(extracted_text.strip()) < 100:
-                    st.warning(f"Dokument '{label}' nie zawiera warstwy tekstowej. Używam OCR...")
-                    extracted_text = ""
-
-                    try:
-                        import pytesseract
-                        from PIL import Image
-                        import io
-
-                        for page_num, page in enumerate(doc, start=1):
-                            pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
-                            img_bytes = pix.tobytes("png")
-                            img = Image.open(io.BytesIO(img_bytes))
-
-                            page_text_ocr = pytesseract.image_to_string(img, lang='pol')
-                            extracted_text += page_text_ocr + "\n"
-
-                            st.info(f"OCR strona {page_num}/{len(doc)} - wyodrębniono {len(page_text_ocr)} znaków")
-
-                        if extracted_text.strip():
-                            st.success(f"OCR zakończone dla '{label}' - {len(extracted_text)} znaków")
-                        else:
-                            st.error(f"OCR nie wykrył tekstu w dokumencie '{label}'")
-
-                    except ImportError:
-                        st.error("Brak biblioteki pytesseract. Zainstaluj: pip install pytesseract pillow")
-                        st.info("Musisz też zainstalować Tesseract OCR: https://github.com/tesseract-ocr/tesseract")
-                        continue
-                    except Exception as e:
-                        st.error(f"Błąd OCR dla '{label}': {e}")
-                        continue
-
-                docs_content[label] = extracted_text.strip()
-
-        except Exception as e:
-            st.error(f"Błąd podczas przetwarzania '{label}': {e}")
-            continue
-
-    if "Ustalenia ogólne" in docs_content and docs_content["Ustalenia ogólne"]:
-        prompt = f"Na podstawie tego dokumentu, jaki jest ogólny cel i charakter obszaru objętego tym planem?\n\nDokument:\n---\n{docs_content['Ustalenia ogólne']}"
-        results['ogolne']['Cel Planu'] = llm.invoke(prompt)
-
-    if "Ustalenia szczegółowe" in docs_content:
-        doc_szczegolowe = docs_content["Ustalenia szczegółowe"]
-
-        if doc_szczegolowe and len(doc_szczegolowe) > 50:
-            id_prompt = f"Na podstawie poniższego tekstu z dokumentu 'Ustalenia szczegółowe', jaki jest symbol/oznaczenie terenu elementarnego? (np. 'S.N.9006.MC'). Odpowiedz tylko samym symbolem terenu.\n\nTekst dokumentu:\n---\n{doc_szczegolowe[:5000]}"
-            results['szczegolowe']['Oznaczenie Terenu'] = llm.invoke(id_prompt)
-
-            detail_questions = {
-                "Przeznaczenie terenu": "Jakie jest szczegółowe przeznaczenie terenu (podstawowe i dopuszczalne) oraz jakie są zakazy?",
-                "Wysokość zabudowy": "Jakie są szczegółowe ustalenia dotyczące wysokości zabudowy w metrach?",
-                "Wskaźniki zabudowy": "Jakie są szczegółowe wskaźniki, takie jak maksymalna powierzchnia zabudowy i minimalna powierzchnia biologicznie czynna?",
-                "Geometria dachu": "Jakie są szczegółowe wymagania dotyczące geometrii dachu i jego pokrycia?",
-            }
-
-            for key, question in detail_questions.items():
-                prompt = f"Na podstawie TYLKO i WYŁĄCZNIE poniższego dokumentu 'Ustalenia szczegółowe', odpowiedz na pytanie: {question}\n\nDokument:\n---\n{doc_szczegolowe}"
-                results['szczegolowe'][key] = llm.invoke(prompt)
-
-    return results
-
-
-def run_ai_agent_flow(parcel_id):
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--force-device-scale-factor=1")
-
-    if os.getenv('CHROME_BIN'):
-        options.binary_location = os.getenv('CHROME_BIN')
-        service = Service(os.getenv('CHROMEDRIVER_PATH'))
-    else:
-        service = Service()
-
-    driver = webdriver.Chrome(service=service, options=options)
-    final_results = {}
-    try:
-        with st.expander("Postęp misji agenta nawigacyjnego", expanded=True):
-            driver.get("https://mapa.szczecin.eu/gpt4/?permalink=56520129")
-            time.sleep(5)
-            wait = WebDriverWait(driver, 20)
-
-            search_box = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Szukaj...']")))
-            search_box.send_keys(parcel_id)
-            wait.until(EC.visibility_of_element_located((By.XPATH, "//li[contains(@class, 'x-boundlist-item')]")))
-            time.sleep(1); search_box.send_keys(Keys.RETURN)
-            time.sleep(1); search_box.send_keys(Keys.RETURN)
-            st.success("Krok 1/3: Działka zlokalizowana.")
-            time.sleep(4)
-            ActionChains(driver).move_by_offset(driver.get_window_size()['width'] / 2, driver.get_window_size()['height'] / 2).context_click().perform()
-            st.success("Krok 2/3: Menu kontekstowe otwarte.")
-            time.sleep(1)
-            try:
-                wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Informacje o obiekcie')]"))).click()
-                st.success("Akcja 'Informacje o obiekcie' wykonana.")
-                time.sleep(3)
-            except Exception as e:
-                st.error(f"Nie udało się otworzyć okna 'Informacje o obiekcie': {e}")
-                raise e
-
-            st.info("Krok 3/3: Sprawdzanie statusu MPZP w dedykowanym oknie...")
-            time.sleep(2)
-
-            info_window_context_xpath = "//div[contains(@class, 'x-window') and .//span[text()='Informacje o obiekcie']]"
-            mpzp_uchwalony_locator = (By.XPATH, info_window_context_xpath + "//*[contains(text(), 'MPZP - Tereny elementarne')]")
-            mpzp_wszczety_locator = (By.XPATH, info_window_context_xpath + "//*[contains(text(), 'MPZP - plany wszczęte')]")
-
-            if driver.find_elements(*mpzp_uchwalony_locator):
-                st.success("Znaleziono UCHWALONY MPZP dla tej działki. Kontynuuję analizę...")
-                try:
-                    driver.find_element(*mpzp_uchwalony_locator).click()
-                    time.sleep(2)
-
-                    with st.spinner("Nawigacja zakończona. Ekstrakcja linków..."):
-                        final_links = extract_links_by_clicking(driver, wait)
-
-                    if final_links:
-                        final_results['links'] = final_links
-                        for label, link in final_links.items(): st.markdown(f"**{label}:** [Otwórz]({link})")
-                        with st.spinner("Uruchamiam Agenta Analityka AI..."):
-                            analysis = analyze_documents_with_ai(tuple(sorted(final_links.items())), parcel_id)
-                        if analysis: final_results['analysis'] = analysis
-                    else:
-                        st.error("Nie udało się wyodrębnić żadnych linków, mimo że MPZP został zidentyfikowany.")
-                except Exception as e:
-                    st.error(f"Wystąpił błąd na etapie interakcji z istniejącym MPZP: {e}")
-                    return {}
-
-            elif driver.find_elements(*mpzp_wszczety_locator):
-                st.warning("Dla tej działki procedura sporządzenia MPZP została wszczęta, ale plan nie jest jeszcze uchwalony.")
-                st.info("Agent kończy pracę, ponieważ nie ma jeszcze finalnych dokumentów do analizy.")
-                return {"status": "wszczęty"}
-
-            else:
-                st.error("Dla wybranej działki w oknie informacyjnym nie znaleziono żadnych danych o MPZP.")
-                st.info("Agent kończy pracę.")
-                return {"status": "brak"}
-
-    finally:
-        driver.quit()
-
-    return final_results
 
 
 st.set_page_config(layout="wide");
@@ -1370,7 +790,7 @@ if st.session_state.show_search or st.session_state.map_center:
         st.session_state.parcel_data = None;
         st.session_state.analysis_results = None
         with st.spinner("Pobieram współrzędne..."):
-            coords, error = geocode_address_to_coords(address_input)
+            coords, error = geospatial.geocode_address_to_coords(address_input)
             if error:
                 st.error(error); st.session_state.map_center = None
             else:
@@ -1409,7 +829,7 @@ if st.session_state.show_search or st.session_state.map_center:
         folium.LayerControl().add_to(m)
 
         for parcel in st.session_state.selected_parcels:
-            coords_wgs84 = transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
+            coords_wgs84 = geospatial.transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
             folium.Polygon(locations=coords_wgs84, color='#28a745', fill=True, fillColor='#28a745',
                            fill_opacity=0.5, weight=3, tooltip=parcel['ID Działki']).add_to(m)
 
@@ -1419,7 +839,7 @@ if st.session_state.show_search or st.session_state.map_center:
         if map_data and map_data.get("last_clicked"):
             lat, lon = map_data["last_clicked"]["lat"], map_data["last_clicked"]["lng"]
             with st.spinner(f"Identyfikuję działkę..."):
-                parcel_data, error = get_parcel_from_coords(lat, lon)
+                parcel_data, error = geospatial.get_parcel_from_coords(lat, lon)
                 if error:
                     st.error(error)
                 else:
@@ -1440,7 +860,7 @@ if st.session_state.show_search or st.session_state.map_center:
                     if coords_2180 and len(coords_2180) > 0:
                         avg_x = sum(p[0] for p in coords_2180) / len(coords_2180)
                         avg_y = sum(p[1] for p in coords_2180) / len(coords_2180)
-                        center_lon, center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+                        center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
                         st.session_state.map_center = (center_lat, center_lon)
                     
                     st.rerun()
@@ -1479,20 +899,20 @@ if st.session_state.show_search or st.session_state.map_center:
             all_coords_wgs84 = []
             for parcel in st.session_state.selected_parcels:
                 coords_2180 = parcel["Współrzędne EPSG:2180"]
-                coords_wgs84_single = transform_coordinates_to_wgs84(coords_2180)
+                coords_wgs84_single = geospatial.transform_coordinates_to_wgs84(coords_2180)
                 all_coords.extend(coords_2180)
                 all_coords_wgs84.extend(coords_wgs84_single)
             
             avg_x = sum(p[0] for p in all_coords) / len(all_coords)
             avg_y = sum(p[1] for p in all_coords) / len(all_coords)
-            map_center_lon, map_center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+            map_center_lon, map_center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
             map_center = (map_center_lat, map_center_lon)
 
             selected_map_style = "light"
             with st.spinner("Generuję model 3D otoczenia..."):
                 all_parcel_coords_list = []
                 for parcel in st.session_state.selected_parcels:
-                    coords_wgs84_single = transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
+                    coords_wgs84_single = geospatial.transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
                     if len(coords_wgs84_single) > 0:
                         first_point = coords_wgs84_single[0]
                         last_point = coords_wgs84_single[-1]
@@ -1651,7 +1071,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             if coords_2180 and len(coords_2180) > 0:
                                 avg_x = sum(p[0] for p in coords_2180) / len(coords_2180)
                                 avg_y = sum(p[1] for p in coords_2180) / len(coords_2180)
-                                center_lon, center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+                                center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
                                 analysis_map_center = (center_lat, center_lon)
                             else:
                                 if 'map_center' in locals() or 'map_center' in globals():
@@ -1661,7 +1081,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                         first_parcel_coords = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
                                         avg_x = sum(p[0] for p in first_parcel_coords) / len(first_parcel_coords)
                                         avg_y = sum(p[1] for p in first_parcel_coords) / len(first_parcel_coords)
-                                        center_lon, center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+                                        center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
                                         analysis_map_center = (center_lat, center_lon)
                                     else:
                                         analysis_map_center = (53.4285, 14.5511)
@@ -1670,7 +1090,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                 first_parcel_coords = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
                                 avg_x = sum(p[0] for p in first_parcel_coords) / len(first_parcel_coords)
                                 avg_y = sum(p[1] for p in first_parcel_coords) / len(first_parcel_coords)
-                                center_lon, center_lat = transform_single_coord(avg_x, avg_y, "2180", "4326")
+                                center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
                                 analysis_map_center = (center_lat, center_lon)
                             else:
                                 analysis_map_center = (53.4285, 14.5511)
@@ -1791,159 +1211,65 @@ if st.session_state.show_search or st.session_state.map_center:
                 data = st.session_state.solar_analysis_results
                 if not data["results_df"].empty:
                     results_df = data["results_df"]
-                    min_h, max_h = results_df['sun_hours'].min(), results_df['sun_hours'].max()
+                    # Rename sun_hours to value for visualization module
+                    results_df = results_df.rename(columns={'sun_hours': 'value'})
+                    
+                    min_h, max_h = results_df['value'].min(), results_df['value'].max()
+                    if max_h == min_h: max_h += 1.0
 
-                    if max_h == min_h:
-                        max_h += 1.0
-
-                    results_df['color'] = results_df['sun_hours'].apply(lambda x: value_to_rgb(x, min_h, max_h))
-
-                    transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
-
-                    buildings_data_wgs84 = []
-                    for b in data['buildings_metric']:
-                        poly_metric = Polygon(b['polygon'])
-                        poly_wgs84 = transform(transformer_to_wgs.transform, poly_metric)
-                        buildings_data_wgs84.append({
-                            "polygon": [list(poly_wgs84.exterior.coords)],
-                            "height": b['height']
-                        })
-
-                    sun_paths_wgs84 = []
-                    for sp in data['sun_paths']:
-                        path_wgs = [transformer_to_wgs.transform(p[0], p[1]) + (p[2],) for p in sp['path']]
-                        sun_paths_wgs84.append({"path": path_wgs})
-
-                    analemmas_segments = {}
-
-                    for hour, ana_data in data['analemmas'].items():
-                        sorted_ana_data = sorted(ana_data, key=lambda x: x['day'])
+                    # Prepare data for visualization module
+                    # We need to pass the parcel coords. Since we don't have them directly in 'data',
+                    # we can try to get them from st.session_state.selected_parcels or reconstruct.
+                    # However, create_solar_analysis_layers expects parcel_coords_wgs_84.
+                    # Let's assume we can get it from the first selected parcel if available.
+                    
+                    parcel_coords = []
+                    if st.session_state.selected_parcels:
+                        # Need to transform back to WGS84 if they are in 2180
+                        # But selected_parcels stores 2180.
                         
-                        ana_wgs = []
-                        for point_data in sorted_ana_data:
-                            coords = point_data['coords']
-                            wgs_coords = transformer_to_wgs.transform(coords[0], coords[1]) + (coords[2],)
-                            ana_wgs.append(wgs_coords)
-
-                        hour_segments = []
-                        for i in range(len(ana_wgs) - 1):
-                            source = ana_wgs[i]
-                            target = ana_wgs[i + 1]
-                            
-                            hour_segments.append({
-                                "source": source,
-                                "target": target,
-                                "hour": hour
-                            })
-
-                        if len(ana_wgs) > 1:
-                            hour_segments.append({
-                                "source": ana_wgs[-1],
-                                "target": ana_wgs[0],
-                                "hour": hour
-                            })
-
-                        analemmas_segments[hour] = hour_segments
-
-                    azimuth_markers_wgs84 = []
-                    for am in data['azimuth_markers']:
-                        pos_wgs = list(transformer_to_wgs.transform(am['position'][0], am['position'][1]))
-                        azimuth_markers_wgs84.append({
-                            "position": [pos_wgs[0], pos_wgs[1], am['position'][2]],
-                            "label": am['label']
-                        })
-
-                    azimuth_lines_main_wgs84 = []
-                    azimuth_lines_secondary_wgs84 = []
-
-                    for al in data['azimuth_lines']:
-                        line_wgs = [transformer_to_wgs.transform(p[0], p[1]) + (p[2],) for p in al['path']]
-                        if al['is_main']:
-                            azimuth_lines_main_wgs84.append({"path": line_wgs})
-                        else:
-                            azimuth_lines_secondary_wgs84.append({"path": line_wgs})
-
+                        for p_data in st.session_state.selected_parcels:
+                            coords_2180 = p_data['Współrzędne EPSG:2180']
+                            p_coords_wgs = geospatial.transform_coordinates_to_wgs84(coords_2180)
+                            parcel_coords.append(p_coords_wgs)
+                    
+                    layers, _ = visualization.create_solar_analysis_layers(
+                        parcel_coords_wgs_84=parcel_coords,
+                        map_center_wgs_84=data['analysis_map_center'],
+                        solar_results=results_df,
+                        grid_points_metric=None, # Not needed as we pass results_df with WGS84 coords
+                        sun_path_data=data['sun_paths'], # List of dicts
+                        analemma_data=data['analemmas'],
+                        azimuth_data=(data['azimuth_markers'], data['azimuth_lines'])
+                    )
+                    
+                    # Add sun position markers (specific to this app's logic, maybe move to viz later)
+                    # For now, let's add them manually or update viz module.
+                    # The viz module expects sun_path_data to be (line, markers) OR list of paths.
+                    # It doesn't explicitly handle "current sun position markers" separate from the path markers.
+                    # But we can add them as a ScatterplotLayer here or extend the viz module.
+                    
+                    # Let's add them here for now to keep it simple, or better, add to layers list.
                     sun_positions_wgs84 = []
+                    transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
                     for sp in data['sun_position_markers']:
                         pos_wgs = list(transformer_to_wgs.transform(sp['position'][0], sp['position'][1]))
                         sun_positions_wgs84.append({
                             "position": [pos_wgs[0], pos_wgs[1], sp['position'][2]]
                         })
-
-                    heatmap_layer = pdk.Layer("GridCellLayer", data=results_df, get_position=['lon', 'lat'],
-                                              get_fill_color='color', cell_size=1.0, extruded=False,
-                                              coverage=1.0)
-
-                    building_layer = pdk.Layer("PolygonLayer", data=buildings_data_wgs84, get_polygon="polygon",
-                                               extruded=True,
-                                               get_elevation="height", get_fill_color=[180, 180, 180, 80], wireframe=True)
-
-                    sun_path_layer = pdk.Layer("PathLayer", data=sun_paths_wgs84, get_path="path",
-                                              get_color=[140, 140, 140, 160], get_width=1,
-                                              width_min_pixels=1, billboard=True)
-
-                    analemma_layers = []
-
-
-                    for hour in sorted(analemmas_segments.keys()):
-                        layer = pdk.Layer(
-                            "LineLayer",
-                            id=f"analemma_segments_{hour}",
-                            data=analemmas_segments[hour],
-                            get_source_position="source",
-                            get_target_position="target",
-                            get_color=[100, 100, 100, 180],
-                            get_width=1,
-                            width_min_pixels=1,
-                            pickable=False,
-                            auto_highlight=False
-                        )
-                        analemma_layers.append(layer)
-
-
-                    compass_main_layer = pdk.Layer("PathLayer", data=azimuth_lines_main_wgs84, get_path="path",
-                                                   get_color=[90, 90, 90, 150], get_width=1.5,
-                                                   width_min_pixels=1, billboard=True)
-
-                    compass_secondary_layer = pdk.Layer("PathLayer", data=azimuth_lines_secondary_wgs84, get_path="path",
-                                                       get_color=[120, 120, 120, 120], get_width=1,
-                                                       width_min_pixels=1, billboard=True)
-
-                    azimuth_text_layer = pdk.Layer("TextLayer", data=azimuth_markers_wgs84,
-                                                  get_position="position",
-                                                  get_text="label",
-                                                  get_size=14,
-                                                  get_color=[80, 80, 80, 255],
-                                                  get_angle=0,
-                                                  get_text_anchor="'middle'",
-                                                  get_alignment_baseline="'center'",
-                                                  billboard=True)
-
+                    
                     sun_markers_layer = pdk.Layer("ScatterplotLayer", data=sun_positions_wgs84,
                                                  get_position="position",
                                                  get_radius=12, filled=True,
                                                  get_fill_color=[255, 223, 0, 255],
                                                  stroked=False, billboard=True)
+                    layers.append(sun_markers_layer)
 
-                    st.markdown(create_discrete_legend_html(min_h, max_h, colormap='plasma'), unsafe_allow_html=True)
+                    st.markdown(visualization.create_discrete_legend_html(min_h, max_h, colormap='plasma'), unsafe_allow_html=True)
 
-                    all_layers = [
-                        building_layer,
-                        heatmap_layer,
-                        compass_main_layer,
-                        compass_secondary_layer,
-                        sun_path_layer,
-                    ] + analemma_layers + [
-                        azimuth_text_layer,
-                        sun_markers_layer,
-                    ]
-
-                    stored_result = st.session_state.solar_analysis_results
-                    if 'analysis_map_center' in stored_result:
-                        display_map_center = stored_result['analysis_map_center']
-                    else:
-                        display_map_center = (53.4285, 14.5511)
-                    r = pdk.Deck(layers=all_layers,
+                    display_map_center = data.get('analysis_map_center', (53.4285, 14.5511))
+                    
+                    r = pdk.Deck(layers=layers,
                                  initial_view_state=pdk.ViewState(latitude=display_map_center[0], longitude=display_map_center[1],
                                                                   zoom=17.5, pitch=50, bearing=0),
                                  map_style=None)
@@ -1951,6 +1277,7 @@ if st.session_state.show_search or st.session_state.map_center:
                     st.pydeck_chart(r, use_container_width=True, height=600)
                 else:
                     st.warning("Nie udało się stworzyć siatki analitycznej dla tej działki.")
+
 
 
 
@@ -1977,7 +1304,21 @@ if st.session_state.show_search or st.session_state.map_center:
                 try:
                     if st.session_state.selected_parcels:
                         primary_parcel_id = st.session_state.selected_parcels[0]['ID Działki']
-                        results = run_ai_agent_flow(primary_parcel_id)
+                        
+                        def status_callback(type, message):
+                            if type == "info":
+                                st.info(message)
+                            elif type == "success":
+                                st.success(message)
+                            elif type == "warning":
+                                st.warning(message)
+                            elif type == "error":
+                                st.error(message)
+                            else:
+                                st.write(message)
+                        
+                        results = mpzp_agent.run_ai_agent_flow(primary_parcel_id, status_callback=status_callback)
+                        
                         if results:
                             st.session_state.analysis_results = results
                             st.success("Analiza zakończona!")
