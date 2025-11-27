@@ -3,14 +3,12 @@ import json
 import tempfile
 import platform
 
-# Constants
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"
 EMBEDDING_MODEL_NAME = "text-embedding-004"
 UNIVERSE_DOMAIN = "googleapis.com"
 
 def setup_tesseract():
-    """Configures Tesseract path on Windows."""
     if platform.system() == 'Windows':
         possible_paths = [
             r'C:\Program Files\Tesseract-OCR\tesseract.exe',
@@ -28,16 +26,10 @@ def setup_tesseract():
     return False
 
 def setup_gcp_credentials(secrets=None):
-    """
-    Configures Google Cloud credentials.
-    Prioritizes GCP_CREDENTIALS env var, then service_account env vars, then streamlit secrets.
-    Returns the PROJECT_ID if successful, raises Exception otherwise.
-    """
     credentials_configured = False
     project_id = None
     credentials_dict = None
 
-    # 1. Try GCP_CREDENTIALS env var (JSON string)
     if os.getenv('GCP_CREDENTIALS'):
         try:
             credentials_json = os.getenv('GCP_CREDENTIALS')
@@ -46,7 +38,6 @@ def setup_gcp_credentials(secrets=None):
         except Exception as e:
             raise Exception(f"Failed to load GCP credentials from environment: {e}")
 
-    # 2. Try individual env vars
     elif os.getenv('type') == 'service_account':
         try:
             credentials_dict = {
@@ -66,7 +57,6 @@ def setup_gcp_credentials(secrets=None):
         except Exception as e:
             raise Exception(f"Failed to load credentials from individual environment variables: {e}")
 
-    # 3. Try secrets (passed from Streamlit)
     elif secrets and 'gcp_service_account' in secrets:
         try:
             credentials_dict = dict(secrets['gcp_service_account'])

@@ -3,11 +3,6 @@ from pyproj import Transformer
 from urllib.parse import quote_plus
 
 def geocode_address_to_coords(address):
-    """
-    Geocodes an address string to (lat, lon) coordinates using Nominatim.
-    Returns:
-        tuple: ((lat, lon), error_message)
-    """
     nominatim_url = f"https://nominatim.openstreetmap.org/search?q={quote_plus(address)}&format=json&limit=1&countrycodes=pl"
     headers = {'User-Agent': 'AsystentAnalizyDzialki/2.2'}
     try:
@@ -21,11 +16,6 @@ def geocode_address_to_coords(address):
         return None, f"Błąd geokodowania: {str(e)}"
 
 def get_parcel_by_id(parcel_id):
-    """
-    Fetches parcel geometry from ULDK by parcel ID.
-    Returns:
-        tuple: (parcel_data_dict, error_message)
-    """
     uldk_url = f"https://uldk.gugik.gov.pl/?request=GetParcelById&id={parcel_id}&result=geom_wkt"
     try:
         response = requests.get(uldk_url, timeout=15)
@@ -47,11 +37,6 @@ def get_parcel_by_id(parcel_id):
         return None, f"Błąd pobierania danych działki: {str(e)}"
 
 def get_parcel_from_coords(lat, lon):
-    """
-    Identifies a parcel by (lat, lon) coordinates using ULDK.
-    Returns:
-        tuple: (parcel_data_dict, error_message)
-    """
     try:
         transformer = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
         x, y = transformer.transform(lon, lat)
@@ -70,21 +55,10 @@ def get_parcel_from_coords(lat, lon):
         return None, f"Błąd identyfikacji działki: {e}"
 
 def transform_coordinates_to_wgs84(coords_2180):
-    """
-    Transforms a list of [x, y] coordinates from EPSG:2180 to EPSG:4326 (lat, lon).
-    """
     transformer = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
-    # Transformer.transform(x, y) returns (lon, lat) because always_xy=True
-    # We want [lat, lon] for some map libraries, or [lon, lat] for others.
-    # The original code returned: [[lat, lon], ...] based on:
-    # return [[transformer.transform(x, y)[1], transformer.transform(x, y)[0]] for x, y in coords_2180]
     return [[transformer.transform(x, y)[1], transformer.transform(x, y)[0]] for x, y in coords_2180]
 
 def transform_single_coord(x, y, source_crs, target_crs):
-    """
-    Transform a single coordinate from one CRS to another.
-    Returns (longitude, latitude) for WGS84 or (x, y) for metric systems.
-    """
     transformer = Transformer.from_crs(f"EPSG:{source_crs}", f"EPSG:{target_crs}", always_xy=True)
     lon, lat = transformer.transform(x, y)
     return lon, lat

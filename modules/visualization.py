@@ -2,12 +2,13 @@ import pydeck as pdk
 import pandas as pd
 import numpy as np
 import osmnx as ox
+import rasterio
+from pyproj import Transformer
 from shapely.geometry import Polygon
 from matplotlib import cm
 import modules.geospatial as geospatial
 
 def value_to_rgb(value, min_val, max_val, colormap='plasma'):
-    """Maps a numerical value to an RGB color list [r, g, b, a]."""
     if max_val == min_val:
         norm_value = 0.5
     else:
@@ -17,18 +18,17 @@ def value_to_rgb(value, min_val, max_val, colormap='plasma'):
     return [int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255), 200]
 
 def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
-    """Generates HTML for a discrete color legend."""
     if min_val == max_val:
         rgba = cm.get_cmap(colormap)(0.5)
         rgb = f"rgb({int(rgba[0] * 255)}, {int(rgba[1] * 255)}, {int(rgba[2] * 255)})"
         label = f"{min_val:.1f}h"
         header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
         title = "<div style='margin-bottom: 8px;'><b>Śr. dzienne nasłonecznienie</b></div>"
-        content = f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 20px; background: {rgb};'></div><div>{label}</div></div>"
+        content = f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 35px; background: {rgb};'></div><div>{label}</div></div>"
         return f"{header}{title}{content}</div>"
 
     values = np.linspace(min_val, max_val, steps)
-    colors = cm.get_cmap(colormap)(np.linspace(0, 0.92, steps))
+    colors = cm.get_cmap(colormap)(np.linspace(0, 0.90, steps))
     header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
     title = "<div style='margin-bottom: 8px;'><b>Śr. dzienne nasłonecznienie</b></div>"
     content = "<div style='display: flex; flex-direction: row; align-items: center; justify-content: space-between;'>"
@@ -36,12 +36,11 @@ def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
     for i in range(steps):
         rgb = f"rgb({int(colors[i][0] * 255)}, {int(colors[i][1] * 255)}, {int(colors[i][2] * 255)})"
         label = f"{values[i]:.1f}h"
-        content += f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 20px; background: {rgb};'></div><div>{label}</div></div>"
+        content += f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 35px; background: {rgb};'></div><div>{label}</div></div>"
 
     return f"{header}{title}{content}</div></div>"
 
 def get_buildings_layer(map_center_wgs_84):
-    """Fetches buildings from OSM and creates a Pydeck PolygonLayer."""
     try:
         tags = {"building": True}
         gdf_buildings = ox.features_from_point(
@@ -69,7 +68,7 @@ def get_buildings_layer(map_center_wgs_84):
             data=buildings_data_for_pydeck,
             get_polygon="polygon",
             extruded=True,
-            wireframe=True,
+            wirefame=True,
             get_elevation="height",
             get_fill_color=[180, 180, 180, 200],
             get_line_color=[100, 100, 100]
@@ -78,6 +77,108 @@ def get_buildings_layer(map_center_wgs_84):
     except Exception:
         return None, []
 
+def create_lidar_point_cloud_layer(dsm_data, transform, subsample=2):
+    import pandas as pd
+    import numpy as np
+    import pydeck as pdk
+    import rasterio
+    from pyproj import Transformer
+
+    MAX_POINTS = 150000
+    total_pixels = dsm_data.size
+    step = int(np.ceil(np.sqrt(total_pixels / MAX_POINTS)))
+    step = max(step, 1)
+    
+    rows, cols = dsm_data.shape
+    dsm_sub = dsm_data[::step, ::step]
+    
+    r_idx = np.arange(0, rows, step)
+    c_idx = np.arange(0, cols, step)
+    c_grid, r_grid = np.meshgrid(c_idx, r_idx)
+    
+    xs, ys = rasterio.transform.xy(transform, r_grid.flatten(), c_grid.flatten())
+    z_vals = dsm_sub.flatten()
+    
+    valid_mask = ~np.isnan(z_vals)
+    xs = np.array(xs)[valid_mask]
+    ys = np.array(ys)[valid_mask]
+    z_vals = z_vals[valid_mask]
+
+    transformer = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+    lons, lats = transformer.transform(xs, ys)
+    
+    data_stack = np.column_stack((lons, lats, z_vals))
+    
+    df = pd.DataFrame({
+        'position': data_stack.tolist(),
+        'color': [[154, 202, 165, 50]] * len(data_stack)
+    })
+
+    return pdk.Layer(
+        "PointCloudLayer",
+        data=df,
+        get_position="position",
+        get_color="color",
+        get_normal=[0, 0, 15],
+        point_size=3,
+        # size_units
+        pickable=False,
+    )
+
+def create_lidar_lines_layer(dsm_data, dtm_data, transform, subsample=3):
+    import pandas as pd
+    import numpy as np
+    import pydeck as pdk
+    import rasterio
+    from pyproj import Transformer
+
+    rows, cols = dsm_data.shape
+    
+    r_idx = np.arange(0, rows, subsample)
+    c_idx = np.arange(0, cols, subsample)
+    c_grid, r_grid = np.meshgrid(c_idx, r_idx)
+    
+    dsm_sub = dsm_data[::subsample, ::subsample]
+    dtm_sub = dtm_data[::subsample, ::subsample]
+    
+    height_diff = dsm_sub - dtm_sub
+    mask = (height_diff > 2.0) & (~np.isnan(dsm_sub)) & (~np.isnan(dtm_sub))
+    
+    if np.sum(mask) == 0:
+        return None
+
+    r_flat = r_grid[mask]
+    c_flat = c_grid[mask]
+    z_top = dsm_sub[mask]
+    z_bottom = dtm_sub[mask]
+
+    xs, ys = rasterio.transform.xy(transform, r_flat, c_flat)
+    xs = np.array(xs)
+    ys = np.array(ys)
+
+    transformer = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+    lons, lats = transformer.transform(xs, ys)
+    
+    source_arr = np.column_stack((lons, lats, z_bottom))
+    target_arr = np.column_stack((lons, lats, z_top))
+    
+    df = pd.DataFrame({
+        'source_position': source_arr.tolist(),
+        'target_position': target_arr.tolist(),
+        'color': [[172, 202, 179, 50]] * len(source_arr)
+    })
+
+    return pdk.Layer(
+        "LineLayer",
+        data=df,
+        get_source_position="source_position",
+        get_target_position="target_position",
+        get_color="color",
+        get_width=10,
+        width_min_pixels=1,
+        pickable=False
+    )
+
 def create_solar_analysis_layers(
     parcel_coords_wgs_84,
     map_center_wgs_84,
@@ -85,41 +186,25 @@ def create_solar_analysis_layers(
     grid_points_metric=None,
     sun_path_data=None,
     analemma_data=None,
-    azimuth_data=None
+    azimuth_data=None,
+    show_buildings=True
 ):
-    """
-    Creates all Pydeck layers for the solar analysis visualization.
-    """
+
     layers = []
     
-    # 1. Buildings Layer
-    buildings_layer, buildings_data = get_buildings_layer(map_center_wgs_84)
-    if buildings_layer:
-        layers.append(buildings_layer)
+    buildings_data = []
+    if show_buildings:
+        buildings_layer, buildings_data = get_buildings_layer(map_center_wgs_84)
+        if buildings_layer:
+            layers.append(buildings_layer)
 
-    # 2. Parcel Layer
-    # Check if parcel_coords_wgs_84 is a list of polygons (list of lists of coords) or a single polygon (list of coords)
-    # A single polygon is a list of [lon, lat] points. So it's a list of lists.
-    # A list of polygons is a list of list of lists.
-    
     parcels_data = []
     if parcel_coords_wgs_84 and len(parcel_coords_wgs_84) > 0:
-        # Heuristic to check depth
-        # Case 1: Single polygon [[lon, lat], [lon, lat], ...]
-        # parcel_coords_wgs_84[0] is [lon, lat] -> list/tuple
-        # parcel_coords_wgs_84[0][0] is lon -> float/int
-        
-        # Case 2: List of polygons [[[lon, lat], ...], [[lon, lat], ...]]
-        # parcel_coords_wgs_84[0] is [[lon, lat], ...] -> list/tuple
-        # parcel_coords_wgs_84[0][0] is [lon, lat] -> list/tuple
-        
         first_point = parcel_coords_wgs_84[0]
         if isinstance(first_point, (list, tuple)) and len(first_point) > 0:
             if isinstance(first_point[0], (int, float)):
-                # Case 1: Single polygon
                 polygons = [parcel_coords_wgs_84]
             elif isinstance(first_point[0], (list, tuple)):
-                # Case 2: List of polygons
                 polygons = parcel_coords_wgs_84
             else:
                 polygons = []
@@ -128,12 +213,6 @@ def create_solar_analysis_layers(
 
         for poly_coords in polygons:
             try:
-                # Ensure closed polygon for Shapely if needed, but Pydeck just needs list of points
-                # Shapely Polygon expects list of tuples/lists
-                # We use Shapely to ensure it's a valid polygon structure if needed, or just pass coords
-                # The original code used: [list(Polygon(parcel_coords_wgs_84).exterior.coords)]
-                # This ensures the polygon is closed and valid.
-                
                 p = Polygon(poly_coords)
                 parcels_data.append({
                     "polygon": [list(p.exterior.coords)],
@@ -155,49 +234,90 @@ def create_solar_analysis_layers(
     )
     layers.append(layer_parcel)
 
-    # 3. Solar Heatmap Layer (if results exist)
     if solar_results is not None:
-        # solar_results is expected to be a list of dicts with {lon, lat, value}
-        # or a DataFrame with columns [lon, lat, value]
-        
         if isinstance(solar_results, pd.DataFrame):
             min_h, max_h = solar_results['value'].min(), solar_results['value'].max()
             if min_h == max_h: max_h += 1.0
             
             results_data = []
+            has_z = 'z' in solar_results.columns
+            
+            meters_per_deg_lat = 111132.954
+            
             for _, row in solar_results.iterrows():
-                color = value_to_rgb(row['value'], min_h, max_h)
-                results_data.append({
-                    'lon': row['lon'],
-                    'lat': row['lat'],
-                    'color': color,
-                    'value': row['value']
-                })
+                val = row['value']
+                raw_rgb = value_to_rgb(val, min_h, max_h)
+                color = [int(c) for c in raw_rgb[:3]] + [230]
+                
+                lon, lat = row['lon'], row['lat']
+                
+                if has_z:
+                    z = row['z']
+                    lat_offset = 0.5 / meters_per_deg_lat
+                    lon_offset = 0.5 / (meters_per_deg_lat * np.cos(np.deg2rad(lat)))
+                    
+                    polygon = [
+                        [lon - lon_offset, lat - lat_offset, z],
+                        [lon + lon_offset, lat - lat_offset, z],
+                        [lon + lon_offset, lat + lat_offset, z],
+                        [lon - lon_offset, lat + lat_offset, z]
+                    ]
+                    
+                    results_data.append({
+                        'polygon': polygon,
+                        'color': color,
+                        'value': row['value']
+                    })
+                else:
+                    results_data.append({
+                        'lon': lon,
+                        'lat': lat,
+                        'color': color,
+                        'value': row['value']
+                    })
+            
+            if has_z and results_data:
+                heatmap_layer = pdk.Layer(
+                    "PolygonLayer",
+                    data=results_data,
+                    get_polygon="polygon",
+                    get_fill_color="color",
+                    filled=True,
+                    extruded=False,
+                    stroked=False,
+                    opacity=1.0,
+                    pickable=True,
+                    auto_highlight=True
+                )
+            else:
+                heatmap_layer = pdk.Layer(
+                    "GridCellLayer",
+                    data=results_data,
+                    get_position=['lon', 'lat'],
+                    get_fill_color='color',
+                    cell_size=1.0,
+                    extruded=False,
+                    coverage=1.0
+                )
+            layers.append(heatmap_layer)
         else:
-            # Assume it's already formatted or handle other formats
             results_data = solar_results
+            heatmap_layer = pdk.Layer(
+                "GridCellLayer",
+                data=results_data,
+                get_position=['lon', 'lat'],
+                get_fill_color='color',
+                cell_size=1.0,
+                extruded=False,
+                coverage=1.0
+            )
+            layers.append(heatmap_layer)
 
-        heatmap_layer = pdk.Layer(
-            "GridCellLayer",
-            data=results_data,
-            get_position=['lon', 'lat'],
-            get_fill_color='color',
-            cell_size=1.0,
-            extruded=False,
-            coverage=1.0
-        )
-        layers.append(heatmap_layer)
-
-    # 4. Sun Path Layers (if data exists)
     if sun_path_data:
-        # sun_path_data can be a list of dicts (multiple paths) or a tuple (single path + markers)
-        
+
         if isinstance(sun_path_data, list):
-            # Multiple paths (e.g. solstices)
             sun_paths_wgs84 = []
             for sp in sun_path_data:
-                # sp is {'path': [[x,y,z], ...], 'name': ...}
-                # coords are metric, need transform
                 path_wgs = []
                 for p in sp['path']:
                     p_wgs = geospatial.transform_single_coord(p[0], p[1], "2180", "4326")
@@ -216,10 +336,8 @@ def create_solar_analysis_layers(
             layers.append(sun_path_layer)
             
         elif isinstance(sun_path_data, tuple):
-            # Single path + markers
             sun_path_line, sun_hour_markers = sun_path_data
             
-            # Transform sun path to WGS84
             sun_path_wgs84 = geospatial.transform_coordinates_to_wgs84([p[:2] for p in sun_path_line])
             sun_path_wgs84_3d = [[p[0], p[1], h[2]] for p, h in zip(sun_path_wgs84, sun_path_line)]
             
@@ -234,7 +352,6 @@ def create_solar_analysis_layers(
             )
             layers.append(sun_path_layer)
             
-            # Sun markers
             sun_markers_wgs84 = []
             for marker in sun_hour_markers:
                 pos_metric = marker['position']
@@ -256,21 +373,16 @@ def create_solar_analysis_layers(
             )
             layers.append(sun_markers_layer)
 
-    # 5. Analemma Layers
     if analemma_data:
         analemma_layers = []
         for hour, ana_content in analemma_data.items():
-            # ana_content can be a list of segments (dicts with source/target)
-            # or a list of points (dicts with coords)
-            
+
             segments = []
             if isinstance(ana_content, list) and len(ana_content) > 0:
                 first_item = ana_content[0]
                 if 'source' in first_item and 'target' in first_item:
-                    # Already segments
                     segments = ana_content
                 elif 'coords' in first_item:
-                    # List of points, need to create segments
                     sorted_points = sorted(ana_content, key=lambda x: x.get('day', 0))
                     points_wgs = []
                     for p in sorted_points:
@@ -288,18 +400,13 @@ def create_solar_analysis_layers(
                             "source": points_wgs[-1],
                             "target": points_wgs[0]
                         })
-            
-            # If segments are already in WGS84 (from the block above), use them
-            # If they came in as segments (metric), transform them
-            
+
             wgs84_segments = []
             for seg in segments:
-                if 'source' in seg: # It's a segment
+                if 'source' in seg:
                     src = seg['source']
                     tgt = seg['target']
-                    # Check if already WGS84 (lon < 180) or Metric (x > 1000)
-                    # Simple heuristic
-                    if src[0] > 180: 
+                    if src[0] > 180:
                         src_wgs = geospatial.transform_single_coord(src[0], src[1], "2180", "4326")
                         src = [src_wgs[0], src_wgs[1], src[2]]
                     if tgt[0] > 180:
@@ -326,11 +433,9 @@ def create_solar_analysis_layers(
             analemma_layers.append(layer)
         layers.extend(analemma_layers)
 
-    # 6. Compass/Azimuth Layers
     if azimuth_data:
         markers, lines = azimuth_data
         
-        # Transform markers
         markers_wgs84 = []
         for m in markers:
             pos = m['position']
@@ -354,7 +459,6 @@ def create_solar_analysis_layers(
         )
         layers.append(azimuth_text_layer)
         
-        # Transform lines
         lines_wgs84 = []
         for l in lines:
             path = l['path']

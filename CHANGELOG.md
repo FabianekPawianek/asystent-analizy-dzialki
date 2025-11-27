@@ -7,8 +7,11 @@ projekt używa [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Planowane (v0.3.0) - Focus: Szczecin
-Projekt w wersji 0.3 będzie kontynuował skupienie na mieście Szczecin, budując bazę analiz potrzebną do rzetelnych wniosków AI.
+### Planowane (v0.3.0) - Focus: Polska (Skala Krajowa)
+Zmiana strategii z lokalnej (Szczecin) na ogólnopolską. Dzięki pomyślnej integracji z WCS Geoportalu w v0.2.2, projekt porzuca ograniczenia lokalne na rzecz analizy dostępnej dla każdej działki w Polsce.
+
+#### Rozwój Analizy LiDAR
+- Zaawansowana klasyfikacja terenu (rozróżnianie wysokiej zieleni od budynków)
 
 #### Analiza stanu istniejącego
 - Automatyczne pobieranie zdjęć satelitarnych z Google Maps
@@ -24,17 +27,36 @@ Projekt w wersji 0.3 będzie kontynuował skupienie na mieście Szczecin, buduj�
 - Rekonstrukcja historii zabudowy działki
 - Timeline zmian zagospodarowania terenu
 
-#### Przejście na CityGML 3D
-- Przejście z danych OpenStreetMap na CityGML 3D dla bardziej szczegółowej analizy budynków
-- Ulepszenie dokładności modeli 3D poprzez użycie danych.CityGML
-- Zwiększenie szczegółowości analizy cieni i nasłonecznienia
-- Scalanie danych.CityGML z danymi MPZP
-- Możliwość usunięcia zabudowy na analizowanych działkach w przypadku nieistotnych budynków mogących zaburzać analizę nasłonecznienia
-
 #### Planowane na późniejsze wersje
 - Generowanie propozycji zabudowy (forma + podział funkcjonalny)
 - Wariantowanie rozwiązań projektowych
 - Rozszerzenie poza Szczecin (wymaga refaktoryzacji modułu MPZP)
+
+#### Porzucone
+- **CityGML 3D**: Zrezygnowano z wdrażania CityGML. Dane LiDAR (NMPT/NMT) zapewniają wystarczającą precyzję dla analizy cienia i są dostępne globalnie dla Polski.
+
+## [0.2.2] - 2025-11-27
+
+### Kluczowe Zmiany
+- **Silnik LiDAR (Polska)**: Wprowadzono analizę nasłonecznienia opartą na numerycznych modelach terenu (DTM/DSM) z Geoportalu. Umożliwia to analizę cienia rzucanego przez drzewa i budynki w dowolnym miejscu w Polsce.
+
+### Dodane
+- **Moduł `lidar_service`**: Klasa obsługująca komunikację z WCS GUGiK, pobieranie rastrów i ich obróbkę.
+- **Algorytm "Karczowania"**: Funkcja `flatten_dsm_on_parcel` usuwająca zieleń/zabudowę z samej działki, aby analizować nasłonecznienie na poziomie gruntu.
+- **Wizualizacja 3D (PyDeck)**: Nowy moduł wizualizacji obsługujący chmury punktów LiDAR oraz heatmapy nałożone na rzeźbę terenu.
+- **UI / UX**:
+    - Selekcja źródła danych: OSM (szybkie, schematyczne) vs LiDAR (dokładne, wolniejsze).
+    - Wizualny pasek postępu (HTML/CSS) w formie "kropek" reagujący na etapy obliczeń.
+    - Wybór dokładności próbkowania czasu (1 h, 30 min, 15 min).
+- **Zależności**: Dodano `owslib`, `rasterio`, `pyvista` do obsługi danych geoprzestrzennych.
+
+### Zmienione
+- **Refaktoryzacja**: Wydzielenie logiki z monolitycznego `app.py` do pakietu `modules/` (`solar.py`, `geospatial.py`, `visualization.py`, `lidar_service.py`).
+- **Optymalizacja `solar.py`**:
+    - Wdrożenie mechanizmu **batching** (przetwarzanie partiami po 5000 punktów), co drastycznie zredukowało zużycie RAM (mieszcząc się w limicie 16GB).
+    - Dodano jawne zarządzanie pamięcią (`gc.collect`) w pętli obliczeniowej.
+- **Logika Czasu**: Poprawiono generator kroków czasowych w symulacji, eliminując nadmiarowe obliczenia.
+
 
 ## [0.2.1] - 2025-11-07
 

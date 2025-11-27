@@ -12,11 +12,14 @@ import trimesh
 import open3d as o3d
 from datetime import datetime
 from shapely.geometry import (Polygon)
+from shapely import wkt
 from shapely.ops import transform
 from streamlit_folium import st_folium
 from pyproj import Transformer
 from urllib.parse import quote_plus
 import platform
+
+st.cache_data.clear()
 import os
 import config
 import modules.geospatial as geospatial
@@ -24,10 +27,8 @@ import modules.solar as solar
 import modules.visualization as visualization
 import modules.mpzp_agent as mpzp_agent
 
-# Setup Tesseract
 config.setup_tesseract()
 
-# Setup GCP Credentials
 try:
     PROJECT_ID = config.setup_gcp_credentials(st.secrets)
     mpzp_agent.init_ai(PROJECT_ID)
@@ -41,13 +42,10 @@ except Exception as e:
 
 
 def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center_wgs_84, map_style: str):
-    """Generate 3D context view that shows multiple parcels as separate entities"""
     try:
-        # This function is now a wrapper around visualization.create_solar_analysis_layers
-        # It handles the specific case of just showing the context (no solar results yet)
-        
+
         layers, buildings_data = visualization.create_solar_analysis_layers(
-            parcel_coords_wgs_84=all_parcel_coords_list, # Pass the full list of parcels
+            parcel_coords_wgs_84=all_parcel_coords_list,
             map_center_wgs_84=map_center_wgs_84
         )
         
@@ -74,7 +72,6 @@ def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center
 
 
 def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_style: str):
-    """Create 3D view with filled parcels using transparency for overlapping areas"""
     try:
         tags = {"building": True}
         gdf_buildings = ox.features_from_point(
@@ -298,30 +295,133 @@ def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.nd
 
 
 import modules.solar as solar
+from modules.lidar_service import LidarService
 
-@st.cache_data
+# @st.cache_data
 def run_solar_simulation(
         _buildings_data_metric_tuple: tuple,
         grid_points_metric: np.ndarray,
         lat: float, lon: float,
         analysis_date: datetime.date,
-        hour_range: tuple
+        hour_range: tuple,
+        freq: str = "1H",
+        use_lidar: bool = False,
+        lidar_bbox: tuple = None,
+        target_parcel_geometry = None
 ) -> np.ndarray:
-    buildings_data_metric = [
-        {'polygon': b_tuple[0], 'height': b_tuple[1]} for b_tuple in _buildings_data_metric_tuple
-    ]
+    
+    print(f"DEBUG TRACER: Wszedłem do run_solar_simulation. use_lidar={use_lidar}, freq={freq}", flush=True)
 
-    # 1. Create Scene
-    scene = solar.create_trimesh_scene(buildings_data_metric)
+    if freq == "15min":
+        time_step_weight = 0.25
+    elif freq == "30min":
+        time_step_weight = 0.5
+    else:
+        time_step_weight = 1.0
+
+    if use_lidar and lidar_bbox:
+        print("DEBUG TRACER: Jestem w bloku LiDAR", flush=True)
+        width_m = lidar_bbox[2] - lidar_bbox[0]
+        height_m = lidar_bbox[3] - lidar_bbox[1]
+        print(f"DEBUG: BBOX Dimensions: {width_m:.2f}m x {height_m:.2f}m")
+        
+        if width_m > 2000 or height_m > 2000:
+            st.error(f"Zbyt duży obszar analizy: {width_m:.0f}x{height_m:.0f}m. Zmniejsz bufor.")
+            return None
+
+        try:
+            lidar_service = LidarService()
+            dsm_data, transform = lidar_service.get_dsm_data(lidar_bbox)
+            
+            dtm_data, dtm_transform = lidar_service.get_dtm_data(lidar_bbox)
+
+            min_elevation = np.nanmin(dtm_data)
+            dsm_data = dsm_data - min_elevation
+            dtm_data = dtm_data - min_elevation
+            print(f"DEBUG: Normalizacja terenu. Odejmuję offset wysokościowy: {min_elevation:.2f}m", flush=True)
+            
+            parcel_geoms = []
+            if target_parcel_geometry:
+                 parcel_geoms.append(target_parcel_geometry)
+            elif st.session_state.selected_parcels:
+                for p_data in st.session_state.selected_parcels:
+                    if 'Geometria' in p_data:
+                        try:
+                            geom = wkt.loads(p_data['Geometria'])
+                            parcel_geoms.append(geom)
+                        except Exception:
+                            pass
+            
+            print(f"DEBUG TRACER: Wywołuję flatten. Geometria dostępna? {bool(parcel_geoms)}", flush=True)
+            
+            dsm_for_calc = dsm_data.copy()
+            dsm_for_viz = dsm_data.copy()
+            dtm_for_viz = dtm_data.copy()
+
+            if parcel_geoms:
+                dsm_for_calc = lidar_service.flatten_dsm_on_parcel(dsm_for_calc, dtm_data, transform, parcel_geoms, fill_with_nan=False)
+                
+                dsm_for_viz = lidar_service.flatten_dsm_on_parcel(dsm_for_viz, dtm_data, transform, parcel_geoms, fill_with_nan=True)
+                dtm_for_viz = lidar_service.flatten_dsm_on_parcel(dtm_for_viz, dtm_data, transform, parcel_geoms, fill_with_nan=True)
+            
+            lidar_layers = []
+            
+            lines_layer = visualization.create_lidar_lines_layer(dsm_for_viz, dtm_for_viz, transform, subsample=3)
+            if lines_layer:
+                lidar_layers.append(lines_layer)
+
+            point_cloud_layer = visualization.create_lidar_point_cloud_layer(dsm_for_viz, transform, subsample=2)
+            if point_cloud_layer:
+                lidar_layers.append(point_cloud_layer)
+                
+            st.session_state['lidar_point_cloud_layer'] = lidar_layers
+            
+            scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, transform)
+            
+            z_values = lidar_service.sample_height_for_points(dtm_data, dtm_transform, grid_points_metric[:, :2])
+            
+            grid_points_metric[:, 2] = z_values + 0.5
+            
+        except Exception as e:
+            st.error(f"Błąd pobierania danych LiDAR: {e}. Przełączam na tryb OSM.")
+            buildings_data_metric = [
+                {'polygon': b_tuple[0], 'height': b_tuple[1]} for b_tuple in _buildings_data_metric_tuple
+            ]
+            scene = solar.create_trimesh_scene(buildings_data_metric)
+    else:
+        buildings_data_metric = [
+            {'polygon': b_tuple[0], 'height': b_tuple[1]} for b_tuple in _buildings_data_metric_tuple
+        ]
+        scene = solar.create_trimesh_scene(buildings_data_metric)
     
     if scene.is_empty:
         st.warning("Nie udało się wygenerować geometrii 3D otoczenia. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
     
-    # 2. Calculate Sun Positions
-    sun_positions = solar.calculate_sun_positions(lat, lon, analysis_date, hour_range)
+    sun_positions = solar.calculate_sun_positions(lat, lon, analysis_date, hour_range, freq=freq)
     
-    # 3. Calculate Shadows
-    sunlit_hours = solar.calculate_shadows(scene, grid_points_metric, sun_positions)
+    progress_placeholder = st.empty()
+    
+    def update_progress(current_step, total_steps):
+        dots_html = ""
+        for i in range(total_steps):
+            color = "#FFD700" if i < current_step else "#BDB76B"
+            box_shadow = "0 0 5px #FFD700" if i < current_step else "none"
+            dots_html += f'<div style="width: 10px; height: 10px; background-color: {color}; border-radius: 50%; box-shadow: {box_shadow}; transition: all 0.3s ease;"></div>'
+        
+        container_html = f'<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 10px 0; margin-bottom: 20px;">{dots_html}</div>'
+        progress_placeholder.markdown(container_html, unsafe_allow_html=True)
+
+    update_progress(0, len(sun_positions))
+
+    sunlit_hours = solar.calculate_shadows(
+        scene, 
+        grid_points_metric, 
+        sun_positions, 
+        time_step_weight=time_step_weight,
+        progress_callback=update_progress
+    )
+    
+    progress_placeholder.empty()
     
     return sunlit_hours
 
@@ -806,7 +906,6 @@ if st.session_state.show_search or st.session_state.map_center:
         </div>
         """, unsafe_allow_html=True)
 
-        # Utwórz mapę Folium z obsługą kliknięć
         import folium
         from streamlit_folium import st_folium
 
@@ -999,6 +1098,14 @@ if st.session_state.show_search or st.session_state.map_center:
             </div>
             """, unsafe_allow_html=True)
 
+            data_source = st.radio(
+                "Źródło danych 3D:",
+                options=["OSM (Budynki)", "LiDAR (Geoportal)"],
+                index=0,
+                horizontal=True,
+                help="Wybierz źródło danych do analizy cienia. OSM jest szybsze, ale mniej dokładne. LiDAR uwzględnia teren, drzewa i kształty dachów."
+            )
+            
             today = datetime(2025, 1, 1).date()
             selected_date_range = st.date_input(
                 "Wybierz dzień lub zakres dni analizy:",
@@ -1008,6 +1115,20 @@ if st.session_state.show_search or st.session_state.map_center:
                 "Wybierz zakres godzin analizy:",
                 min_value=0, max_value=23, value=(6, 20), step=1
             )
+
+            sampling_freq_label = st.radio(
+                "Dokładność próbkowania (Interwał):",
+                options=["1 godzina", "30 min", "15 min"],
+                index=0,
+                horizontal=True
+            )
+            
+            freq_map = {
+                "1 godzina": "1H",
+                "30 min": "30min",
+                "15 min": "15min"
+            }
+            sampling_freq = freq_map[sampling_freq_label]
 
             if st.button("Uruchom analizę nasłonecznienia", key="run_solar_analysis", use_container_width=True):
                 start_date, end_date = selected_date_range
@@ -1147,19 +1268,31 @@ if st.session_state.show_search or st.session_state.map_center:
                             total_sunlit_hours = np.zeros(len(grid_points_2180))
                             date_range = pd.date_range(start_date, end_date)
 
+                            lidar_bbox = None
+                            use_lidar = (data_source == "LiDAR (Geoportal)")
+                            
+                            if use_lidar:
+                                minx, miny, maxx, maxy = parcel_poly_2180.bounds
+                                buffer = 200
+                                lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
+
                             for single_date in date_range:
                                 total_sunlit_hours += run_solar_simulation(
                                     buildings_data_for_cache,
                                     grid_points_2180,
                                     analysis_map_center[0], analysis_map_center[1], single_date,
-                                    hour_range
+                                    hour_range,
+                                    freq=sampling_freq,
+                                    use_lidar=use_lidar,
+                                    lidar_bbox=lidar_bbox,
+                                    target_parcel_geometry=parcel_poly_2180 if use_lidar else None
                                 )
 
                             average_sunlit_hours = total_sunlit_hours / len(date_range)
                             transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
                             grid_points_wgs84 = np.array(
-                                [transformer_to_wgs.transform(p[0], p[1]) for p in grid_points_2180])
-                            results_df = pd.DataFrame(grid_points_wgs84, columns=['lon', 'lat'])
+                                [(*transformer_to_wgs.transform(p[0], p[1]), p[2]) for p in grid_points_2180])
+                            results_df = pd.DataFrame(grid_points_wgs84, columns=['lon', 'lat', 'z'])
                             results_df['sun_hours'] = average_sunlit_hours
                             viz_date = date_range[len(date_range) // 2]
                             map_center_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True).transform(
@@ -1202,7 +1335,8 @@ if st.session_state.show_search or st.session_state.map_center:
                                                                        "azimuth_markers": azimuth_markers,
                                                                        "azimuth_lines": azimuth_lines,
                                                                        "sun_position_markers": sun_position_markers,
-                                                                       "analysis_map_center": analysis_map_center}
+                                                                       "analysis_map_center": analysis_map_center,
+                                                                       "data_source": data_source}
                         else:
                             st.session_state.solar_analysis_results = None
                 st.rerun()
@@ -1211,45 +1345,32 @@ if st.session_state.show_search or st.session_state.map_center:
                 data = st.session_state.solar_analysis_results
                 if not data["results_df"].empty:
                     results_df = data["results_df"]
-                    # Rename sun_hours to value for visualization module
                     results_df = results_df.rename(columns={'sun_hours': 'value'})
                     
                     min_h, max_h = results_df['value'].min(), results_df['value'].max()
                     if max_h == min_h: max_h += 1.0
 
-                    # Prepare data for visualization module
-                    # We need to pass the parcel coords. Since we don't have them directly in 'data',
-                    # we can try to get them from st.session_state.selected_parcels or reconstruct.
-                    # However, create_solar_analysis_layers expects parcel_coords_wgs_84.
-                    # Let's assume we can get it from the first selected parcel if available.
-                    
                     parcel_coords = []
                     if st.session_state.selected_parcels:
-                        # Need to transform back to WGS84 if they are in 2180
-                        # But selected_parcels stores 2180.
-                        
+
                         for p_data in st.session_state.selected_parcels:
                             coords_2180 = p_data['Współrzędne EPSG:2180']
                             p_coords_wgs = geospatial.transform_coordinates_to_wgs84(coords_2180)
                             parcel_coords.append(p_coords_wgs)
                     
+                    is_lidar = data.get('data_source') == "LiDAR (Geoportal)"
+                    
                     layers, _ = visualization.create_solar_analysis_layers(
                         parcel_coords_wgs_84=parcel_coords,
                         map_center_wgs_84=data['analysis_map_center'],
                         solar_results=results_df,
-                        grid_points_metric=None, # Not needed as we pass results_df with WGS84 coords
-                        sun_path_data=data['sun_paths'], # List of dicts
+                        grid_points_metric=None,
+                        sun_path_data=data['sun_paths'],
                         analemma_data=data['analemmas'],
-                        azimuth_data=(data['azimuth_markers'], data['azimuth_lines'])
+                        azimuth_data=(data['azimuth_markers'], data['azimuth_lines']),
+                        show_buildings=not is_lidar
                     )
                     
-                    # Add sun position markers (specific to this app's logic, maybe move to viz later)
-                    # For now, let's add them manually or update viz module.
-                    # The viz module expects sun_path_data to be (line, markers) OR list of paths.
-                    # It doesn't explicitly handle "current sun position markers" separate from the path markers.
-                    # But we can add them as a ScatterplotLayer here or extend the viz module.
-                    
-                    # Let's add them here for now to keep it simple, or better, add to layers list.
                     sun_positions_wgs84 = []
                     transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
                     for sp in data['sun_position_markers']:
@@ -1265,7 +1386,18 @@ if st.session_state.show_search or st.session_state.map_center:
                                                  stroked=False, billboard=True)
                     layers.append(sun_markers_layer)
 
-                    st.markdown(visualization.create_discrete_legend_html(min_h, max_h, colormap='plasma'), unsafe_allow_html=True)
+                    if is_lidar and 'lidar_point_cloud_layer' in st.session_state and st.session_state['lidar_point_cloud_layer']:
+                        lidar_content = st.session_state['lidar_point_cloud_layer']
+                        if isinstance(lidar_content, list):
+                            for layer in reversed(lidar_content):
+                                layers.insert(0, layer)
+                        else:
+                            layers.insert(0, lidar_content)
+
+                    legend_html = visualization.create_discrete_legend_html(min_h, max_h, colormap='plasma')
+                    if legend_html:
+                        legend_html = legend_html.replace('\n', ' ')
+                        st.markdown(legend_html, unsafe_allow_html=True)
 
                     display_map_center = data.get('analysis_map_center', (53.4285, 14.5511))
                     

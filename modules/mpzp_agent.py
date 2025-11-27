@@ -15,22 +15,16 @@ from vertexai.generative_models import GenerativeModel, Part
 from langchain_google_vertexai import VertexAIEmbeddings, VertexAI
 import config
 
-# Global models (initialized lazily or via setup)
 generative_model = None
 llm = None
 
 def init_ai(project_id):
-    """Initializes Vertex AI models."""
     global generative_model, llm
     vertexai.init(project=project_id, location=config.LOCATION)
     generative_model = GenerativeModel(config.MODEL_NAME)
-    # embeddings_model = VertexAIEmbeddings(model_name=config.EMBEDDING_MODEL_NAME) # Not used in the extracted code?
     llm = VertexAI(model_name=config.MODEL_NAME)
 
 def perform_ai_step(driver, goal_prompt, status_callback=None):
-    """
-    Uses Vision AI to decide what to click on the screen.
-    """
     if status_callback:
         status_callback("info", f" **Cel:** {goal_prompt}")
         
@@ -45,9 +39,6 @@ def perform_ai_step(driver, goal_prompt, status_callback=None):
         return None, f"Błąd przetwarzania AI: {e}"
 
 def extract_links_by_clicking(driver, wait, status_callback=None):
-    """
-    Extracts links from the popup window by clicking them.
-    """
     if status_callback:
         status_callback("info", " **Cel:** Błyskawiczna ekstrakcja linków.")
         
@@ -78,16 +69,11 @@ def extract_links_by_clicking(driver, wait, status_callback=None):
                 if status_callback:
                     status_callback("warning", f"Błąd podczas klikania w link dla '{label}': {e}")
         else:
-            # if status_callback:
-            #     status_callback("write", f"Link dla '{label}' nie istnieje na stronie. Pomijam.")
             pass
 
     return extracted_links
 
 def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
-    """
-    Downloads PDFs, performs OCR if needed, and analyzes content using LLM.
-    """
     links_dict = dict(_links_tuple)
     results = {'ogolne': {}, 'szczegolowe': {}}
     docs_content = {}
@@ -174,9 +160,6 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
     return results
 
 def run_ai_agent_flow(parcel_id, status_callback=None):
-    """
-    Main flow for the MPZP Agent.
-    """
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -242,17 +225,11 @@ def run_ai_agent_flow(parcel_id, status_callback=None):
                 driver.find_element(*mpzp_uchwalony_locator).click()
                 time.sleep(2)
 
-                # Note: In app.py this was wrapped in st.spinner. 
-                # Here we just call it. The caller can handle spinner if they want, 
-                # but since we are in a thread or long process, spinner might not work as expected if not on main thread.
-                # We'll rely on status_callback.
-                
                 final_links = extract_links_by_clicking(driver, wait, status_callback)
 
                 if final_links:
                     final_results['links'] = final_links
-                    # Reporting links is done in app.py usually, but we return them.
-                    
+
                     if status_callback:
                         status_callback("info", "Uruchamiam Agenta Analityka AI...")
                         

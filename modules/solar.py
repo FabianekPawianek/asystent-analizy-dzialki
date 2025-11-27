@@ -2,31 +2,26 @@ import numpy as np
 import pandas as pd
 import pvlib
 import trimesh
+import psutil
+import os
+import gc
 from shapely.geometry import Polygon, Point
 from shapely.prepared import prep
 from datetime import datetime
 
-def calculate_sun_positions(lat: float, lon: float, date: datetime.date, hour_range: tuple, tz='Europe/Warsaw'):
-    """
-    Calculates sun positions for a given date and hour range.
-    Returns a DataFrame with 'apparent_elevation' and 'azimuth'.
-    """
+def calculate_sun_positions(lat: float, lon: float, date: datetime.date, hour_range: tuple, freq: str = "1H", tz='Europe/Warsaw'):
     start_hour, end_hour = hour_range
     times = pd.date_range(
         start=f"{date} {start_hour:02d}:00",
         end=f"{date} {end_hour:02d}:00",
-        freq="15min",
+        freq=freq,
         tz=tz
     )
     location = pvlib.location.Location(lat, lon, tz=tz)
     solar_position = location.get_solarposition(times)
-    # Filter for sun above horizon
     return solar_position[solar_position['apparent_elevation'] > 0]
 
 def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
-    """
-    Converts a list of building dictionaries (polygon coords + height) into a trimesh Scene.
-    """
     scene = trimesh.Scene()
     
     for building_dict in buildings_data_metric:
@@ -71,24 +66,46 @@ def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
 
     return scene
 
-def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positions: pd.DataFrame) -> np.ndarray:
-    """
-    Performs ray tracing to calculate shadow masks.
-    Returns an array of 'sunlit hours' (assuming each sun position is 15 mins = 0.25h).
-    """
-    if scene.is_empty:
-        # No shadows, full sun
-        return np.full(len(grid_points), len(sun_positions) * 0.25)
+def log_mem(tag):
+    gc.collect()
+    mem = psutil.Process(os.getpid()).memory_info().rss / 1024**3
+    print(f"DEBUG_MEM [{tag}]: {mem:.2f} GB", flush=True)
 
-    combined_mesh = scene.dump(concatenate=True)
+def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positions: pd.DataFrame, time_step_weight: float = 1.0, progress_callback=None) -> np.ndarray:
+    log_mem("Start calculate_shadows")
+
+    if scene.is_empty:
+        return np.full(len(grid_points), len(sun_positions) * time_step_weight)
+
+    if isinstance(scene, trimesh.Scene):
+        combined_mesh = scene.dump(concatenate=True)
+    elif isinstance(scene, trimesh.Trimesh):
+        combined_mesh = scene
+    else:
+        raise ValueError(f"Nieobsługiwany typ geometrii: {type(scene)}")
+
     if not isinstance(combined_mesh, trimesh.Trimesh):
-        # Fallback if mesh generation fails
-        return np.full(len(grid_points), len(sun_positions) * 0.25)
+        return np.full(len(grid_points), len(sun_positions) * time_step_weight)
+
+    print(f"DEBUG_STATS: Mesh Faces: {len(combined_mesh.faces)}", flush=True)
+    print(f"DEBUG_STATS: Grid Points: {len(grid_points)}", flush=True)
+    print(f"DEBUG_STATS: Sun Positions: {len(sun_positions)}", flush=True)
+    print(f"DEBUG_STATS: Total Rays: {len(grid_points) * len(sun_positions)}", flush=True)
+    
+    log_mem("Mesh prepared")
 
     sunlit_hours = np.zeros(len(grid_points))
     max_ray_distance = 500.0
 
-    for _, sun_pos in sun_positions.iterrows():
+    intersector = combined_mesh.ray
+    log_mem("Intersector initialized")
+
+    batch_size = 5000
+    total_points = len(grid_points)
+    
+    for i, (_, sun_pos) in enumerate(sun_positions.iterrows()):
+        log_mem(f"Step {i} (Sun Position)")
+
         alt_rad = np.deg2rad(sun_pos['apparent_elevation'])
         az_rad = np.deg2rad(sun_pos['azimuth'])
 
@@ -98,31 +115,38 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
             np.sin(alt_rad)
         ])
 
-        ray_origins = grid_points
-        ray_directions = np.tile(sun_direction, (len(ray_origins), 1))
+        for start_idx in range(0, total_points, batch_size):
+            end_idx = min(start_idx + batch_size, total_points)
+            batch_origins = grid_points[start_idx:end_idx]
+            
+            ray_directions = np.tile(sun_direction, (len(batch_origins), 1))
 
-        locations, index_ray, _ = combined_mesh.ray.intersects_location(
-            ray_origins=ray_origins,
-            ray_directions=ray_directions,
-            multiple_hits=False
-        )
+            locations, index_ray, _ = intersector.intersects_location(
+                ray_origins=batch_origins,
+                ray_directions=ray_directions,
+                multiple_hits=False
+            )
 
-        is_lit = np.ones(len(ray_origins), dtype=bool)
-        if len(locations) > 0:
-            distances = np.linalg.norm(locations - ray_origins[index_ray], axis=1)
-            valid_hits = distances < max_ray_distance
-            shadowed_ray_indices = np.unique(index_ray[valid_hits])
-            is_lit[shadowed_ray_indices] = False
+            is_lit_batch = np.ones(len(batch_origins), dtype=bool)
+            if len(locations) > 0:
+                distances = np.linalg.norm(locations - batch_origins[index_ray], axis=1)
+                valid_hits = distances < max_ray_distance
+                shadowed_ray_indices = np.unique(index_ray[valid_hits])
+                is_lit_batch[shadowed_ray_indices] = False
 
-        sunlit_hours += is_lit * 0.25
+            sunlit_hours[start_idx:end_idx] += is_lit_batch * time_step_weight
+            
+            del locations, index_ray, ray_directions, is_lit_batch
+        
+        gc.collect()
+        
+        if progress_callback:
+            progress_callback(i + 1, len(sun_positions))
 
+    log_mem("End calculate_shadows")
     return sunlit_hours
 
 def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.ndarray:
-    """
-    Generates a grid of points within a polygon.
-    Returns an array of points (x, y, z=0.1).
-    """
     bounds = parcel_polygon.bounds
     min_x, min_y, max_x, max_y = bounds
     x_coords = np.arange(min_x, max_x, density)
@@ -134,14 +158,9 @@ def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.nd
     contained_mask = [prepared_polygon.contains(Point(p)) for p in points]
     final_points = points[contained_mask]
     
-    # Add Z coordinate (0.1m above ground)
     return np.hstack([final_points, np.full((len(final_points), 1), 0.1)])
 
 def generate_sun_path_geometry(lat: float, lon: float, date: datetime.date, hour_range: tuple, center_metric: tuple, tz='Europe/Warsaw'):
-    """
-    Calculates the 3D coordinates for the sun path line and hour markers.
-    Returns: (sun_path_line_coords, sun_hour_markers_list)
-    """
     path_radius = 300
     start_hour, end_hour = hour_range
     center_x, center_y = center_metric
