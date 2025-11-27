@@ -2,9 +2,9 @@
 
 [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://fabianekpawianek-asystent-analizy-dzialki.hf.space)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-0.2.1-green.svg)](https://github.com/FabianekPawianek/asystent-analizy-dzialki/releases/tag/v0.2.1)
+[![Version](https://img.shields.io/badge/version-0.2.2-green.svg)](https://github.com/FabianekPawianek/asystent-analizy-dzialki/releases/tag/v0.2.2)
 
-**Wersja Beta 0.2.1 (Szczecin)**
+**Wersja Beta 0.2.2 (Szczecin/Polska)**
 
 To narzędzie jest praktycznym zastosowaniem filozofii **Parametrycznego Humanizmu**. To protest przeciwko architekturze zysku i manifest na rzecz jakości życia, tworzonej dla ludzi, a nie dla arkuszy kalkulacyjnych.
 
@@ -24,13 +24,14 @@ Hostowane na Hugging Face Spaces.
 - **Funkcja:** Wyszukiwanie działki po adresie, interaktywna mapa z warstwami satelitarnymi, automatyczna identyfikacja granic (ULDK/GUGIK), możliwość wyboru i analizy wielu działek jednocześnie.
 - **Zastosowanie:** Błyskawiczna i precyzyjna weryfikacja lokalizacji i granic prawnych działki. Możliwość analizy wielu działek naraz dla kompleksowej oceny obszaru, z automatycznym centrowaniem mapy na wybranej działce.
 
-### 2. Wizualizacja 3D otoczenia
+### 2. Zaawansowana Analiza Nasłonecznienia LiDAR (NOWOŚĆ)
+- **Funkcja:** Symulacja ray-tracing oparta na Numerycznym Modelu Pokrycia Terenu (DSM) z Geoportalu.
+- **Unikalność:** W przeciwieństwie do standardowych narzędzi opartych o proste bryły, system ten **uwzględnia realną zieleń (drzewa), ukształtowanie terenu oraz istniejącą zabudowę**.
+- **Technologia:** Wykorzystuje dwa modele terenu (DSM i DTM) do "oczyszczenia" badanej działki pod nową inwestycję, zachowując jednocześnie cienie rzucane przez otoczenie. Precyzja dostępna dla każdego zakątka Polski.
+
+### 3. Wizualizacja 3D otoczenia
 - **Funkcja:** Generowanie modelu 3D zabudowy w promieniu 300m na podstawie danych OpenStreetMap.
 - **Zastosowanie:** Głębokie zrozumienie kontekstu urbanistycznego. Analiza relacji przestrzennych, skali otoczenia i potencjalnego wpływu nowej zabudowy na istniejącą tkankę. Teraz umożliwia jednoczesne wizualizację wielu działek.
-
-### 3. Analiza nasłonecznienia
-- **Funkcja:** Symulacja ray-tracing z uwzględnieniem cieni rzucanych przez otaczające budynki. Mapa cieplna z liczbą godzin słońca i diagram ścieżki słońca.
-- **Zastosowanie:** Obiektywna kwantyfikacja dostępu do światła naturalnego. Narzędzie do optymalizacji formy budynku w celu maksymalizacji komfortu użytkowników i dostarczenia twardych danych w procesie projektowym. Umożliwia kompleksową analizę nasłonecznienia dla wielu działek jednocześnie.
 
 ### 4. Analiza MPZP z AI
 - **Funkcja:** Autonomiczny agent AI (Gemini 2.5 Pro) nawigujący po geoportalu, wykorzystujący OCR (Tesseract) do analizy zeskanowanych PDF, z bezpiecznym wyodrębnianiem ID projektu z poświadczeń.
@@ -54,4 +55,4 @@ Skonfiguruj secrets w ustawieniach Space:
 
 Fabian Korycki | fabiankoryckiarchitecture@gmail.com
 
-Powered by Google Gemini AI
+Powered by Google Gemini AI & Geoportal.gov.pl
