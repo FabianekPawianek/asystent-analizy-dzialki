@@ -852,7 +852,7 @@ if not st.session_state.show_search and not st.session_state.map_center:
         <h1 style="font-size: 4rem; margin-bottom: 1rem; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
             Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin • Wersja Beta 0.2.1</p>
+        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin/Polska • Wersja Beta 0.2.2</p>
         <p style="font-size: 1rem; color: #616161; margin-bottom: 3rem;">
             Autor: Fabian Korycki | Powered by <span style="color: #28a745; font-weight: 600;">Google Gemini AI</span>
         </p>
@@ -878,7 +878,7 @@ if st.session_state.show_search or st.session_state.map_center:
         <h1 style="font-size: 4rem; margin: 0; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
             Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1rem; color: #616161; margin: 0.5rem 0 0 0;">Szczecin • Wersja Beta 0.2.1</p>
+        <p style="font-size: 1rem; color: #616161; margin: 0.5rem 0 0 0;">Szczecin • Wersja Beta 0.2.2</p>
     </div>
     """, unsafe_allow_html=True)
 
