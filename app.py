@@ -854,7 +854,7 @@ if not st.session_state.show_search and not st.session_state.map_center:
         </h1>
         <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin/Polska • Wersja Beta 0.2.2</p>
         <p style="font-size: 1rem; color: #616161; margin-bottom: 3rem;">
-            Autor: Fabian Korycki | Powered by <span style="color: #28a745; font-weight: 600;">Google Gemini AI</span>
+            Autor: Fabian Korycki | Powered by <span style="color: #28a745; font-weight: 600;">Google Gemini AI </span> & <span style="color: #28a745; font-weight: 600;">Geoportal.gov.pl </span>
         </p>
     </div>
 
