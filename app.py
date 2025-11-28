@@ -297,6 +297,49 @@ def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.nd
 import modules.solar as solar
 from modules.lidar_service import LidarService
 
+@st.cache_data(show_spinner=False)
+def get_cached_lidar_data(bbox):
+    lidar_service = LidarService()
+    dsm_data, transform = lidar_service.get_dsm_data(bbox)
+    dtm_data, dtm_transform = lidar_service.get_dtm_data(bbox)
+    return dsm_data, transform, dtm_data, dtm_transform
+
+@st.cache_data(show_spinner=False)
+def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric):
+    # Reconstruct parcel_geoms from WKT
+    parcel_geoms = [wkt.loads(g) for g in parcel_geoms_wkt]
+    
+    lidar_service = LidarService()
+    
+    min_elevation = np.nanmin(dtm_data)
+    dsm_data = dsm_data - min_elevation
+    dtm_data = dtm_data - min_elevation
+    
+    dsm_for_calc = dsm_data.copy()
+    dsm_for_viz = dsm_data.copy()
+    dtm_for_viz = dtm_data.copy()
+
+    if parcel_geoms:
+        dsm_for_calc = lidar_service.flatten_dsm_on_parcel(dsm_for_calc, dtm_data, transform, parcel_geoms, fill_with_nan=False)
+        dsm_for_viz = lidar_service.flatten_dsm_on_parcel(dsm_for_viz, dtm_data, transform, parcel_geoms, fill_with_nan=True)
+        dtm_for_viz = lidar_service.flatten_dsm_on_parcel(dtm_for_viz, dtm_data, transform, parcel_geoms, fill_with_nan=True)
+    
+    lidar_layers = []
+    lines_layer = visualization.create_lidar_lines_layer(dsm_for_viz, dtm_for_viz, transform, subsample=3)
+    if lines_layer:
+        lidar_layers.append(lines_layer)
+
+    point_cloud_layer = visualization.create_lidar_point_cloud_layer(dsm_for_viz, transform, subsample=2)
+    if point_cloud_layer:
+        lidar_layers.append(point_cloud_layer)
+        
+    scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, transform)
+    
+    z_values = lidar_service.sample_height_for_points(dtm_data, dtm_transform, grid_points_metric[:, :2])
+    grid_points_metric[:, 2] = z_values + 0.5
+    
+    return scene, grid_points_metric, lidar_layers
+
 # @st.cache_data
 def run_solar_simulation(
         _buildings_data_metric_tuple: tuple,
@@ -307,10 +350,30 @@ def run_solar_simulation(
         freq: str = "1H",
         use_lidar: bool = False,
         lidar_bbox: tuple = None,
-        target_parcel_geometry = None
+        target_parcel_geometry = None,
+        progress_container = None
 ) -> np.ndarray:
     
     print(f"DEBUG TRACER: Wszedłem do run_solar_simulation. use_lidar={use_lidar}, freq={freq}", flush=True)
+
+    sun_positions = solar.calculate_sun_positions(lat, lon, analysis_date, hour_range, freq=freq)
+    
+    if progress_container:
+        try:
+            total_steps = len(sun_positions)
+            dots_html = ""
+            for step in range(total_steps):
+                color = "#BDB76B"
+                box_shadow = "none"
+                dots_html += f'<div style="width: 12px; height: 12px; background-color: {color}; border-radius: 50%; margin: 0 4px; box-shadow: {box_shadow}; transition: all 0.3s ease;"></div>'
+            container_html = f'''
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-evenly; align-items: center; width: 100%; padding: 10px 0; margin-bottom: 20px; gap: 5px;">
+                {dots_html}
+            </div>
+            '''
+            progress_container.markdown(container_html, unsafe_allow_html=True)
+        except Exception as e:
+            print(f"Progress bar init error: {e}")
 
     if freq == "15min":
         time_step_weight = 0.25
@@ -330,57 +393,21 @@ def run_solar_simulation(
             return None
 
         try:
-            lidar_service = LidarService()
-            dsm_data, transform = lidar_service.get_dsm_data(lidar_bbox)
-            
-            dtm_data, dtm_transform = lidar_service.get_dtm_data(lidar_bbox)
+            dsm_data, transform, dtm_data, dtm_transform = get_cached_lidar_data(lidar_bbox)
 
-            min_elevation = np.nanmin(dtm_data)
-            dsm_data = dsm_data - min_elevation
-            dtm_data = dtm_data - min_elevation
-            print(f"DEBUG: Normalizacja terenu. Odejmuję offset wysokościowy: {min_elevation:.2f}m", flush=True)
-            
-            parcel_geoms = []
+            parcel_geoms_wkt = []
             if target_parcel_geometry:
-                 parcel_geoms.append(target_parcel_geometry)
+                 parcel_geoms_wkt.append(target_parcel_geometry.wkt)
             elif st.session_state.selected_parcels:
                 for p_data in st.session_state.selected_parcels:
                     if 'Geometria' in p_data:
-                        try:
-                            geom = wkt.loads(p_data['Geometria'])
-                            parcel_geoms.append(geom)
-                        except Exception:
-                            pass
+                        parcel_geoms_wkt.append(p_data['Geometria'])
             
-            print(f"DEBUG TRACER: Wywołuję flatten. Geometria dostępna? {bool(parcel_geoms)}", flush=True)
+            scene, grid_points_metric, lidar_layers = prepare_lidar_geometry(
+                dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric
+            )
             
-            dsm_for_calc = dsm_data.copy()
-            dsm_for_viz = dsm_data.copy()
-            dtm_for_viz = dtm_data.copy()
-
-            if parcel_geoms:
-                dsm_for_calc = lidar_service.flatten_dsm_on_parcel(dsm_for_calc, dtm_data, transform, parcel_geoms, fill_with_nan=False)
-                
-                dsm_for_viz = lidar_service.flatten_dsm_on_parcel(dsm_for_viz, dtm_data, transform, parcel_geoms, fill_with_nan=True)
-                dtm_for_viz = lidar_service.flatten_dsm_on_parcel(dtm_for_viz, dtm_data, transform, parcel_geoms, fill_with_nan=True)
-            
-            lidar_layers = []
-            
-            lines_layer = visualization.create_lidar_lines_layer(dsm_for_viz, dtm_for_viz, transform, subsample=3)
-            if lines_layer:
-                lidar_layers.append(lines_layer)
-
-            point_cloud_layer = visualization.create_lidar_point_cloud_layer(dsm_for_viz, transform, subsample=2)
-            if point_cloud_layer:
-                lidar_layers.append(point_cloud_layer)
-                
             st.session_state['lidar_point_cloud_layer'] = lidar_layers
-            
-            scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, transform)
-            
-            z_values = lidar_service.sample_height_for_points(dtm_data, dtm_transform, grid_points_metric[:, :2])
-            
-            grid_points_metric[:, 2] = z_values + 0.5
             
         except Exception as e:
             st.error(f"Błąd pobierania danych LiDAR: {e}. Przełączam na tryb OSM.")
@@ -397,31 +424,13 @@ def run_solar_simulation(
     if scene.is_empty:
         st.warning("Nie udało się wygenerować geometrii 3D otoczenia. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
     
-    sun_positions = solar.calculate_sun_positions(lat, lon, analysis_date, hour_range, freq=freq)
-    
-    progress_placeholder = st.empty()
-    
-    def update_progress(current_step, total_steps):
-        dots_html = ""
-        for i in range(total_steps):
-            color = "#FFD700" if i < current_step else "#BDB76B"
-            box_shadow = "0 0 5px #FFD700" if i < current_step else "none"
-            dots_html += f'<div style="width: 10px; height: 10px; background-color: {color}; border-radius: 50%; box-shadow: {box_shadow}; transition: all 0.3s ease;"></div>'
-        
-        container_html = f'<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 10px 0; margin-bottom: 20px;">{dots_html}</div>'
-        progress_placeholder.markdown(container_html, unsafe_allow_html=True)
-
-    update_progress(0, len(sun_positions))
-
     sunlit_hours = solar.calculate_shadows(
         scene, 
         grid_points_metric, 
         sun_positions, 
         time_step_weight=time_step_weight,
-        progress_callback=update_progress
+        progress_container=progress_container
     )
-    
-    progress_placeholder.empty()
     
     return sunlit_hours
 
@@ -1129,7 +1138,6 @@ if st.session_state.show_search or st.session_state.map_center:
                 "15 min": "15min"
             }
             sampling_freq = freq_map[sampling_freq_label]
-
             if st.button("Uruchom analizę nasłonecznienia", key="run_solar_analysis", use_container_width=True):
                 start_date, end_date = selected_date_range
                 if start_date is None or end_date is None or start_date > end_date:
@@ -1137,209 +1145,230 @@ if st.session_state.show_search or st.session_state.map_center:
                 else:
                     if not st.session_state.selected_parcels:
                         st.error("Nie wybrano działek do analizy.")
-                        st.rerun()
-                    
-                    from shapely.geometry import Polygon as ShapelyPolygon
-                    from shapely.ops import unary_union
-                    import numpy as np
-                    
-                    shapely_polygons = []
-                    for parcel in st.session_state.selected_parcels:
-                        coords_2180 = parcel["Współrzędne EPSG:2180"]
-                        if len(coords_2180) >= 3:
-                            try:
-                                poly = ShapelyPolygon(coords_2180)
-                                if poly.is_valid:
-                                    shapely_polygons.append(poly)
-                                else:
-                                    fixed_poly = poly.buffer(0)
-                                    if not fixed_poly.is_empty:
-                                        shapely_polygons.append(fixed_poly)
-                            except:
-                                continue
-                    
-                    if shapely_polygons:
-                        if len(shapely_polygons) == 1:
-                            combined_parcel_polygon = shapely_polygons[0]
-                        else:
-                            combined_parcel_polygon = unary_union(shapely_polygons)
-                        
-                        if hasattr(combined_parcel_polygon, 'exterior'):
-                            combined_coords = list(combined_parcel_polygon.exterior.coords)
-                        else:
-                            if hasattr(combined_parcel_polygon, 'geoms'):
-                                largest_poly = max(combined_parcel_polygon.geoms, key=lambda p: p.area)
-                                combined_coords = list(largest_poly.exterior.coords)
-                            else:
-                                combined_coords = list(shapely_polygons[0].exterior.coords)
-                        
-                        combined_parcel_data = {
-                            "ID Działki": f"Połączone ({len(st.session_state.selected_parcels)} działek)",
-                            "Współrzędne EPSG:2180": combined_coords
-                        }
-                        st.session_state.parcel_data = combined_parcel_data
                     else:
-                        primary_parcel = st.session_state.selected_parcels[0]
-                        st.session_state.parcel_data = primary_parcel
+                        st.session_state['is_processing'] = True
+                        st.session_state['processing_params'] = {
+                            'start_date': start_date,
+                            'end_date': end_date,
+                            'hour_range': hour_range,
+                            'sampling_freq': sampling_freq,
+                            'data_source': data_source
+                        }
+                        st.rerun()
+
+            if st.session_state.get('is_processing'):
+                params = st.session_state['processing_params']
+                start_date = params['start_date']
+                end_date = params['end_date']
+                hour_range = params['hour_range']
+                sampling_freq = params['sampling_freq']
+                data_source = params['data_source']
+
+                from shapely.geometry import Polygon as ShapelyPolygon
+                from shapely.ops import unary_union
+                import numpy as np
+                
+                shapely_polygons = []
+                for parcel in st.session_state.selected_parcels:
+                    coords_2180 = parcel["Współrzędne EPSG:2180"]
+                    if len(coords_2180) >= 3:
+                        try:
+                            poly = ShapelyPolygon(coords_2180)
+                            if poly.is_valid:
+                                shapely_polygons.append(poly)
+                            else:
+                                fixed_poly = poly.buffer(0)
+                                if not fixed_poly.is_empty:
+                                    shapely_polygons.append(fixed_poly)
+                        except:
+                            continue
+                
+                if shapely_polygons:
+                    if len(shapely_polygons) == 1:
+                        combined_parcel_polygon = shapely_polygons[0]
+                    else:
+                        combined_parcel_polygon = unary_union(shapely_polygons)
                     
-                    num_days = (end_date - start_date).days + 1
-                    num_hours = hour_range[1] - hour_range[0] + 1
-                    spinner_text = f"Przeprowadzam symulację dla {num_days} {'dzień' if num_days == 1 else 'dni'}, {num_hours} {'godzina' if num_hours == 1 else 'godzin'} (godz. {hour_range[0]}:00-{hour_range[1]}:00)..."
-                    with st.spinner(spinner_text):
-
-                        if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
-                            coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
-                            if coords_2180 and len(coords_2180) > 0:
-                                avg_x = sum(p[0] for p in coords_2180) / len(coords_2180)
-                                avg_y = sum(p[1] for p in coords_2180) / len(coords_2180)
-                                center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
-                                analysis_map_center = (center_lat, center_lon)
-                            else:
-                                if 'map_center' in locals() or 'map_center' in globals():
-                                    analysis_map_center = map_center
-                                else:
-                                    if st.session_state.selected_parcels:
-                                        first_parcel_coords = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
-                                        avg_x = sum(p[0] for p in first_parcel_coords) / len(first_parcel_coords)
-                                        avg_y = sum(p[1] for p in first_parcel_coords) / len(first_parcel_coords)
-                                        center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
-                                        analysis_map_center = (center_lat, center_lon)
-                                    else:
-                                        analysis_map_center = (53.4285, 14.5511)
+                    if hasattr(combined_parcel_polygon, 'exterior'):
+                        combined_coords = list(combined_parcel_polygon.exterior.coords)
+                    else:
+                        if hasattr(combined_parcel_polygon, 'geoms'):
+                            largest_poly = max(combined_parcel_polygon.geoms, key=lambda p: p.area)
+                            combined_coords = list(largest_poly.exterior.coords)
                         else:
-                            if st.session_state.selected_parcels:
-                                first_parcel_coords = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
-                                avg_x = sum(p[0] for p in first_parcel_coords) / len(first_parcel_coords)
-                                avg_y = sum(p[1] for p in first_parcel_coords) / len(first_parcel_coords)
-                                center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
-                                analysis_map_center = (center_lat, center_lon)
+                            combined_coords = list(shapely_polygons[0].exterior.coords)
+                    
+                    combined_parcel_data = {
+                        "ID Działki": f"Połączone ({len(st.session_state.selected_parcels)} działek)",
+                        "Współrzędne EPSG:2180": combined_coords
+                    }
+                    st.session_state.parcel_data = combined_parcel_data
+                else:
+                    primary_parcel = st.session_state.selected_parcels[0]
+                    st.session_state.parcel_data = primary_parcel
+                
+                num_days = (end_date - start_date).days + 1
+                num_hours = hour_range[1] - hour_range[0] + 1
+                spinner_text = f"Przeprowadzam symulację dla {num_days} {'dzień' if num_days == 1 else 'dni'}, {num_hours} {'godzina' if num_hours == 1 else 'godzin'} (godz. {hour_range[0]}:00-{hour_range[1]}:00)..."
+                
+                with st.spinner(spinner_text):
+
+                    if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
+                        coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
+                        if coords_2180 and len(coords_2180) > 0:
+                            avg_x = sum(p[0] for p in coords_2180) / len(coords_2180)
+                            avg_y = sum(p[1] for p in coords_2180) / len(coords_2180)
+                            center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
+                            analysis_map_center = (center_lat, center_lon)
+                        else:
+                            if 'map_center' in locals() or 'map_center' in globals():
+                                analysis_map_center = map_center
                             else:
-                                analysis_map_center = (53.4285, 14.5511)
+                                if st.session_state.selected_parcels:
+                                    first_parcel_coords = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
+                                    avg_x = sum(p[0] for p in first_parcel_coords) / len(first_parcel_coords)
+                                    avg_y = sum(p[1] for p in first_parcel_coords) / len(first_parcel_coords)
+                                    center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
+                                    analysis_map_center = (center_lat, center_lon)
+                                else:
+                                    analysis_map_center = (53.4285, 14.5511)
+                    else:
+                        if st.session_state.selected_parcels:
+                            first_parcel_coords = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
+                            avg_x = sum(p[0] for p in first_parcel_coords) / len(first_parcel_coords)
+                            avg_y = sum(p[1] for p in first_parcel_coords) / len(first_parcel_coords)
+                            center_lon, center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
+                            analysis_map_center = (center_lat, center_lon)
+                        else:
+                            analysis_map_center = (53.4285, 14.5511)
 
-                        gdf_buildings_wgs84 = ox.features_from_point((analysis_map_center[0], analysis_map_center[1]), {"building": True},
-                                                                     dist=350)
-                        gdf_buildings_metric = gdf_buildings_wgs84.to_crs("epsg:2180")
+                    gdf_buildings_wgs84 = ox.features_from_point((analysis_map_center[0], analysis_map_center[1]), {"building": True},
+                                                                 dist=350)
+                    gdf_buildings_metric = gdf_buildings_wgs84.to_crs("epsg:2180")
 
-                        buildings_data_metric = []
-
-
-                        def est_h(r):
-                            try:
-                                if 'height' in r and r['height'] and str(r['height']).strip(): return float(
-                                    str(r['height']).split(';')[0])
-                                if 'building:levels' in r and r['building:levels'] and str(
-                                    r['building:levels']).strip(): return float(
-                                    str(r['building:levels']).split(';')[0]) * 3.5 + 2
-                            except (ValueError, TypeError):
-                                pass
-                            return 10.0
+                    buildings_data_metric = []
 
 
-                        gdf_buildings_metric['height'] = gdf_buildings_metric.apply(est_h, axis=1)
-                        for _, building in gdf_buildings_metric.iterrows():
-                            if building.geometry.geom_type in ['Polygon', 'MultiPolygon']:
-                                polys = [
-                                    building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
-                                for p in polys: buildings_data_metric.append(
-                                    {"polygon": list(p.exterior.coords), "height": building.height})
+                    def est_h(r):
+                        try:
+                            if 'height' in r and r['height'] and str(r['height']).strip(): return float(
+                                str(r['height']).split(';')[0])
+                            if 'building:levels' in r and r['building:levels'] and str(
+                                r['building:levels']).strip(): return float(
+                                str(r['building:levels']).split(';')[0]) * 3.5 + 2
+                        except (ValueError, TypeError):
+                            pass
+                        return 10.0
 
-                        if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
-                            coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
+
+                    gdf_buildings_metric['height'] = gdf_buildings_metric.apply(est_h, axis=1)
+                    for _, building in gdf_buildings_metric.iterrows():
+                        if building.geometry.geom_type in ['Polygon', 'MultiPolygon']:
+                            polygons = [
+                                building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
+                            for p in polygons: buildings_data_metric.append(
+                                {"polygon": list(p.exterior.coords), "height": building.height})
+
+                    if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
+                        coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
+                        parcel_poly_2180 = Polygon(coords_2180)
+                        grid_points_2180 = create_analysis_grid(parcel_poly_2180, density=1.0)
+                    else:
+                        if st.session_state.selected_parcels:
+                            coords_2180 = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
                             parcel_poly_2180 = Polygon(coords_2180)
                             grid_points_2180 = create_analysis_grid(parcel_poly_2180, density=1.0)
                         else:
-                            if st.session_state.selected_parcels:
-                                coords_2180 = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
-                                parcel_poly_2180 = Polygon(coords_2180)
-                                grid_points_2180 = create_analysis_grid(parcel_poly_2180, density=1.0)
-                            else:
-                                st.error("Nie wybrano działki do analizy.")
-                                st.session_state.solar_analysis_results = None
-                                st.rerun()
-
-                        if grid_points_2180.size > 0:
-                            buildings_data_for_cache = tuple(
-                                (tuple(b['polygon']), b['height']) for b in buildings_data_metric
-                            )
-
-                            total_sunlit_hours = np.zeros(len(grid_points_2180))
-                            date_range = pd.date_range(start_date, end_date)
-
-                            total_sunlit_hours = np.zeros(len(grid_points_2180))
-                            date_range = pd.date_range(start_date, end_date)
-
-                            lidar_bbox = None
-                            use_lidar = (data_source == "LiDAR (Geoportal)")
-                            
-                            if use_lidar:
-                                minx, miny, maxx, maxy = parcel_poly_2180.bounds
-                                buffer = 200
-                                lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
-
-                            for single_date in date_range:
-                                total_sunlit_hours += run_solar_simulation(
-                                    buildings_data_for_cache,
-                                    grid_points_2180,
-                                    analysis_map_center[0], analysis_map_center[1], single_date,
-                                    hour_range,
-                                    freq=sampling_freq,
-                                    use_lidar=use_lidar,
-                                    lidar_bbox=lidar_bbox,
-                                    target_parcel_geometry=parcel_poly_2180 if use_lidar else None
-                                )
-
-                            average_sunlit_hours = total_sunlit_hours / len(date_range)
-                            transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
-                            grid_points_wgs84 = np.array(
-                                [(*transformer_to_wgs.transform(p[0], p[1]), p[2]) for p in grid_points_2180])
-                            results_df = pd.DataFrame(grid_points_wgs84, columns=['lon', 'lat', 'z'])
-                            results_df['sun_hours'] = average_sunlit_hours
-                            viz_date = date_range[len(date_range) // 2]
-                            map_center_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True).transform(
-                                analysis_map_center[1], analysis_map_center[0])
-
-                            sun_paths, analemmas, azimuth_markers, azimuth_lines = generate_complete_sun_path_diagram(
-                                analysis_map_center[0], analysis_map_center[1], viz_date.year, map_center_metric
-                            )
-
-                            sun_position_markers = []
-                            location = pvlib.location.Location(analysis_map_center[0], analysis_map_center[1], tz='Europe/Warsaw')
-
-                            for single_date in date_range:
-                                for hour in range(hour_range[0], hour_range[1] + 1):
-                                    try:
-                                        time_str = f"{single_date} {hour:02d}:00"
-                                        time = pd.Timestamp(time_str, tz='Europe/Warsaw')
-                                        solar_pos = location.get_solarposition(time)
-                                        elevation = solar_pos['apparent_elevation'].values[0]
-                                        azimuth_val = solar_pos['azimuth'].values[0]
-
-                                        if elevation > 0:
-                                            alt_rad = np.deg2rad(elevation)
-                                            az_rad = np.deg2rad(azimuth_val)
-                                            x_offset = 300 * np.cos(alt_rad) * np.sin(az_rad)
-                                            y_offset = 300 * np.cos(alt_rad) * np.cos(az_rad)
-                                            z = 300 * np.sin(alt_rad)
-                                            sun_position_markers.append({
-                                                'position': [map_center_metric[0] + x_offset, map_center_metric[1] + y_offset, z],
-                                                'date': str(single_date),
-                                                'hour': hour
-                                            })
-                                    except:
-                                        continue
-
-                            st.session_state.solar_analysis_results = {"results_df": results_df,
-                                                                       "buildings_metric": buildings_data_metric,
-                                                                       "sun_paths": sun_paths,
-                                                                       "analemmas": analemmas,
-                                                                       "azimuth_markers": azimuth_markers,
-                                                                       "azimuth_lines": azimuth_lines,
-                                                                       "sun_position_markers": sun_position_markers,
-                                                                       "analysis_map_center": analysis_map_center,
-                                                                       "data_source": data_source}
-                        else:
+                            st.error("Nie wybrano działki do analizy.")
                             st.session_state.solar_analysis_results = None
+                            st.session_state['is_processing'] = False
+                            st.rerun()
+
+                    if grid_points_2180.size > 0:
+                        buildings_data_for_cache = tuple(
+                            (tuple(b['polygon']), b['height']) for b in buildings_data_metric
+                        )
+
+                        total_sunlit_hours = np.zeros(len(grid_points_2180))
+                        date_range = pd.date_range(start_date, end_date)
+
+                        lidar_bbox = None
+                        use_lidar = (data_source == "LiDAR (Geoportal)")
+                        
+                        if use_lidar:
+                            minx, miny, maxx, maxy = parcel_poly_2180.bounds
+                            buffer = 200
+                            lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
+                            progress_container = st.empty()
+
+                        for single_date in date_range:
+                            total_sunlit_hours += run_solar_simulation(
+                                buildings_data_for_cache,
+                                grid_points_2180,
+                                analysis_map_center[0], analysis_map_center[1], single_date,
+                                hour_range,
+                                freq=sampling_freq,
+                                use_lidar=use_lidar,
+                                lidar_bbox=lidar_bbox,
+                                target_parcel_geometry=parcel_poly_2180 if use_lidar else None,
+                                progress_container=progress_container
+                            )
+
+                        average_sunlit_hours = total_sunlit_hours / len(date_range)
+                        transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+                        grid_points_wgs84 = np.array(
+                            [(*transformer_to_wgs.transform(p[0], p[1]), p[2]) for p in grid_points_2180])
+                        results_df = pd.DataFrame(grid_points_wgs84, columns=['lon', 'lat', 'z'])
+                        results_df['sun_hours'] = average_sunlit_hours
+                        viz_date = date_range[len(date_range) // 2]
+                        map_center_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True).transform(
+                            analysis_map_center[1], analysis_map_center[0])
+
+                        sun_paths, analemmas, azimuth_markers, azimuth_lines = generate_complete_sun_path_diagram(
+                            analysis_map_center[0], analysis_map_center[1], viz_date.year, map_center_metric
+                        )
+
+                        sun_position_markers = []
+                        location = pvlib.location.Location(analysis_map_center[0], analysis_map_center[1], tz='Europe/Warsaw')
+
+                        for single_date in date_range:
+                            for hour in range(hour_range[0], hour_range[1] + 1):
+                                try:
+                                    time_str = f"{single_date} {hour:02d}:00"
+                                    time = pd.Timestamp(time_str, tz='Europe/Warsaw')
+                                    solar_pos = location.get_solarposition(time)
+                                    elevation = solar_pos['apparent_elevation'].values[0]
+                                    azimuth_val = solar_pos['azimuth'].values[0]
+
+                                    if elevation > 0:
+                                        alt_rad = np.deg2rad(elevation)
+                                        az_rad = np.deg2rad(azimuth_val)
+                                        x_offset = 300 * np.cos(alt_rad) * np.sin(az_rad)
+                                        y_offset = 300 * np.cos(alt_rad) * np.cos(az_rad)
+                                        z = 300 * np.sin(alt_rad)
+                                        sun_position_markers.append({
+                                            'position': [map_center_metric[0] + x_offset, map_center_metric[1] + y_offset, z],
+                                            'date': str(single_date),
+                                            'hour': hour
+                                        })
+                                except:
+                                    continue
+
+                        st.session_state.solar_analysis_results = {"results_df": results_df,
+                                                                   "buildings_metric": buildings_data_metric,
+                                                                   "sun_paths": sun_paths,
+                                                                   "analemmas": analemmas,
+                                                                   "azimuth_markers": azimuth_markers,
+                                                                   "azimuth_lines": azimuth_lines,
+                                                                   "sun_position_markers": sun_position_markers,
+                                                                   "analysis_map_center": analysis_map_center,
+                                                                   "data_source": data_source}
+                    else:
+                        st.session_state.solar_analysis_results = None
+                
+                st.session_state['is_processing'] = False
                 st.rerun()
+
 
             if 'solar_analysis_results' in st.session_state and st.session_state.solar_analysis_results:
                 data = st.session_state.solar_analysis_results

@@ -71,7 +71,7 @@ def log_mem(tag):
     mem = psutil.Process(os.getpid()).memory_info().rss / 1024**3
     print(f"DEBUG_MEM [{tag}]: {mem:.2f} GB", flush=True)
 
-def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positions: pd.DataFrame, time_step_weight: float = 1.0, progress_callback=None) -> np.ndarray:
+def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positions: pd.DataFrame, time_step_weight: float = 1.0, progress_container=None) -> np.ndarray:
     log_mem("Start calculate_shadows")
 
     if scene.is_empty:
@@ -102,8 +102,28 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
 
     batch_size = 5000
     total_points = len(grid_points)
+    total_steps = len(sun_positions)
     
     for i, (_, sun_pos) in enumerate(sun_positions.iterrows()):
+        if progress_container:
+            try:
+                dots_html = ""
+                for step in range(total_steps):
+
+                    color = "#FFD700" if step <= i else "#BDB76B" # #FFD700 is Gold, #BDB76B is DarkKhaki (greyish)
+                    box_shadow = "0 0 15px #FFD700" if step == i else "none"
+                    
+                    dots_html += f'<div style="width: 12px; height: 12px; background-color: {color}; border-radius: 50%; margin: 0 4px; box-shadow: {box_shadow}; transition: all 0.3s ease;"></div>'
+                
+                container_html = f'''
+                <div style="display: flex; flex-wrap: wrap; justify-content: space-evenly; align-items: center; width: 100%; padding: 10px 0; margin-bottom: 20px; gap: 5px;">
+                    {dots_html}
+                </div>
+                '''
+                progress_container.markdown(container_html, unsafe_allow_html=True)
+            except Exception as e:
+                print(f"Progress bar error: {e}")
+
         log_mem(f"Step {i} (Sun Position)")
 
         alt_rad = np.deg2rad(sun_pos['apparent_elevation'])
@@ -140,9 +160,6 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
         
         gc.collect()
         
-        if progress_callback:
-            progress_callback(i + 1, len(sun_positions))
-
     log_mem("End calculate_shadows")
     return sunlit_hours
 
