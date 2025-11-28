@@ -29,6 +29,10 @@ Hostowane na Hugging Face Spaces.
 - **Unikalność:** W przeciwieństwie do standardowych narzędzi opartych o proste bryły, system ten **uwzględnia realną zieleń (drzewa), ukształtowanie terenu oraz istniejącą zabudowę**.
 - **Technologia:** Wykorzystuje dwa modele terenu (DSM i DTM) do "oczyszczenia" badanej działki pod nową inwestycję, zachowując jednocześnie cienie rzucane przez otoczenie. Precyzja dostępna dla każdego zakątka Polski.
 
+![Analiza Nasłonecznienia - Warszawa TR](media/lidar-solar-analysis-demo-warsaw.png)
+<br>
+<sub>*Przykładowa analiza: Działka Teatru Rozmaitości w Warszawie z widokiem na Pałac Kultury i Nauki. Symulacja równonocy wiosennej (cały dzień) z dokładnością próbkowania 15 min.*</sub>
+
 ### 3. Wizualizacja 3D otoczenia
 - **Funkcja:** Generowanie modelu 3D zabudowy w promieniu 300m na podstawie danych OpenStreetMap.
 - **Zastosowanie:** Głębokie zrozumienie kontekstu urbanistycznego. Analiza relacji przestrzennych, skali otoczenia i potencjalnego wpływu nowej zabudowy na istniejącą tkankę. Teraz umożliwia jednoczesne wizualizację wielu działek.

@@ -94,23 +94,32 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
     
     log_mem("Mesh prepared")
 
-    sunlit_hours = np.zeros(len(grid_points))
+    grid_points = grid_points.astype(np.float32, copy=False)
+    
+    sunlit_hours = np.zeros(len(grid_points), dtype=np.float32)
     max_ray_distance = 500.0
 
     intersector = combined_mesh.ray
     log_mem("Intersector initialized")
 
-    batch_size = 5000
+    batch_size = 1000
     total_points = len(grid_points)
     total_steps = len(sun_positions)
+    emergency_stop = False
     
     for i, (_, sun_pos) in enumerate(sun_positions.iterrows()):
+        mem_percent = psutil.virtual_memory().percent
+        if mem_percent > 85:
+            print(f"Emergency stop: RAM limit reached ({mem_percent:.1f}% > 85%). Returning partial results.", flush=True)
+            emergency_stop = True
+            break
+            
         if progress_container:
             try:
                 dots_html = ""
                 for step in range(total_steps):
 
-                    color = "#FFD700" if step <= i else "#BDB76B" # #FFD700 is Gold, #BDB76B is DarkKhaki (greyish)
+                    color = "#FFD700" if step <= i else "#BDB76B"
                     box_shadow = "0 0 15px #FFD700" if step == i else "none"
                     
                     dots_html += f'<div style="width: 12px; height: 12px; background-color: {color}; border-radius: 50%; margin: 0 4px; box-shadow: {box_shadow}; transition: all 0.3s ease;"></div>'
@@ -133,13 +142,20 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
             np.cos(alt_rad) * np.sin(az_rad),
             np.cos(alt_rad) * np.cos(az_rad),
             np.sin(alt_rad)
-        ])
+        ], dtype=np.float32)
 
         for start_idx in range(0, total_points, batch_size):
+            if start_idx % 5000 == 0:
+                mem_percent = psutil.virtual_memory().percent
+                if mem_percent > 85:
+                    print(f"Emergency stop: RAM limit reached ({mem_percent:.1f}% > 85%). Returning partial results.", flush=True)
+                    emergency_stop = True
+                    break
+            
             end_idx = min(start_idx + batch_size, total_points)
             batch_origins = grid_points[start_idx:end_idx]
             
-            ray_directions = np.tile(sun_direction, (len(batch_origins), 1))
+            ray_directions = np.tile(sun_direction, (len(batch_origins), 1)).astype(np.float32)
 
             locations, index_ray, _ = intersector.intersects_location(
                 ray_origins=batch_origins,
@@ -157,8 +173,15 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
             sunlit_hours[start_idx:end_idx] += is_lit_batch * time_step_weight
             
             del locations, index_ray, ray_directions, is_lit_batch
+            gc.collect()
+        
+        if emergency_stop:
+            break
         
         gc.collect()
+    
+    if emergency_stop:
+        print(f"⚠️ Partial analysis completed: {i}/{total_steps} sun positions processed.", flush=True)
         
     log_mem("End calculate_shadows")
     return sunlit_hours

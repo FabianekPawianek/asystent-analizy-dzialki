@@ -214,14 +214,14 @@ class LidarService:
             logger.error(f"Error fetching LiDAR DTM data: {e}")
             raise
 
-    def convert_dsm_to_trimesh(self, data, transform, downsample_factor=2):
+    def convert_dsm_to_trimesh(self, data, transform, downsample_factor=4):
         try:
             if np.isnan(data).any():
                 min_val = np.nanmin(data)
                 data = np.nan_to_num(data, nan=min_val)
 
             if downsample_factor > 1:
-                print(f"DEBUG: Downsampling mesh by factor {downsample_factor}...")
+                print(f"DEBUG: Downsampling mesh by factor {downsample_factor} (16x triangle reduction)...")
                 data = data[::downsample_factor, ::downsample_factor]
                 
                 from affine import Affine
