@@ -23,7 +23,7 @@ def calculate_sun_positions(lat: float, lon: float, date: datetime.date, hour_ra
 
 def create_trimesh_scene(buildings_data_metric: list) -> trimesh.Scene:
     scene = trimesh.Scene()
-    
+
     for building_dict in buildings_data_metric:
         try:
             coords = building_dict['polygon']
@@ -91,11 +91,11 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
     print(f"DEBUG_STATS: Grid Points: {len(grid_points)}", flush=True)
     print(f"DEBUG_STATS: Sun Positions: {len(sun_positions)}", flush=True)
     print(f"DEBUG_STATS: Total Rays: {len(grid_points) * len(sun_positions)}", flush=True)
-    
+
     log_mem("Mesh prepared")
 
     grid_points = grid_points.astype(np.float32, copy=False)
-    
+
     sunlit_hours = np.zeros(len(grid_points), dtype=np.float32)
     max_ray_distance = 500.0
 
@@ -105,15 +105,12 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
     batch_size = 1000
     total_points = len(grid_points)
     total_steps = len(sun_positions)
-    emergency_stop = False
-    
+
     for i, (_, sun_pos) in enumerate(sun_positions.iterrows()):
         mem_percent = psutil.virtual_memory().percent
         if mem_percent > 85:
-            print(f"Emergency stop: RAM limit reached ({mem_percent:.1f}% > 85%). Returning partial results.", flush=True)
-            emergency_stop = True
-            break
-            
+            print(f"INFO: High system memory usage detected ({mem_percent:.1f}%), but continuing analysis (container environment)...", flush=True)
+
         if progress_container:
             try:
                 dots_html = ""
@@ -121,9 +118,9 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
 
                     color = "#FFD700" if step <= i else "#BDB76B"
                     box_shadow = "0 0 15px #FFD700" if step == i else "none"
-                    
+
                     dots_html += f'<div style="width: 12px; height: 12px; background-color: {color}; border-radius: 50%; margin: 0 4px; box-shadow: {box_shadow}; transition: all 0.3s ease;"></div>'
-                
+
                 container_html = f'''
                 <div style="display: flex; flex-wrap: wrap; justify-content: space-evenly; align-items: center; width: 100%; padding: 10px 0; margin-bottom: 20px; gap: 5px;">
                     {dots_html}
@@ -145,16 +142,9 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
         ], dtype=np.float32)
 
         for start_idx in range(0, total_points, batch_size):
-            if start_idx % 5000 == 0:
-                mem_percent = psutil.virtual_memory().percent
-                if mem_percent > 85:
-                    print(f"Emergency stop: RAM limit reached ({mem_percent:.1f}% > 85%). Returning partial results.", flush=True)
-                    emergency_stop = True
-                    break
-            
             end_idx = min(start_idx + batch_size, total_points)
             batch_origins = grid_points[start_idx:end_idx]
-            
+
             ray_directions = np.tile(sun_direction, (len(batch_origins), 1)).astype(np.float32)
 
             locations, index_ray, _ = intersector.intersects_location(
@@ -171,18 +161,12 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
                 is_lit_batch[shadowed_ray_indices] = False
 
             sunlit_hours[start_idx:end_idx] += is_lit_batch * time_step_weight
-            
+
             del locations, index_ray, ray_directions, is_lit_batch
             gc.collect()
-        
-        if emergency_stop:
-            break
-        
+
         gc.collect()
-    
-    if emergency_stop:
-        print(f"⚠️ Partial analysis completed: {i}/{total_steps} sun positions processed.", flush=True)
-        
+
     log_mem("End calculate_shadows")
     return sunlit_hours
 
@@ -193,39 +177,39 @@ def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.nd
     y_coords = np.arange(min_y, max_y, density)
     mesh_x, mesh_y = np.meshgrid(x_coords, y_coords)
     points = np.vstack([mesh_x.ravel(), mesh_y.ravel()]).T
-    
+
     prepared_polygon = prep(parcel_polygon)
     contained_mask = [prepared_polygon.contains(Point(p)) for p in points]
     final_points = points[contained_mask]
-    
+
     return np.hstack([final_points, np.full((len(final_points), 1), 0.1)])
 
 def generate_sun_path_geometry(lat: float, lon: float, date: datetime.date, hour_range: tuple, center_metric: tuple, tz='Europe/Warsaw'):
     path_radius = 300
     start_hour, end_hour = hour_range
     center_x, center_y = center_metric
-    
+
     times = pd.date_range(
         start=f"{date} {start_hour:02d}:00",
         end=f"{date} {end_hour:02d}:00",
         freq="15min",
         tz=tz
     )
-    
+
     location = pvlib.location.Location(lat, lon, tz=tz)
     solar_position = location.get_solarposition(times)
     solar_position = solar_position[solar_position['apparent_elevation'] > 0]
-    
+
     sun_path_line = []
     for _, sun in solar_position.iterrows():
         alt_rad = np.deg2rad(sun['apparent_elevation'])
         az_rad = np.deg2rad(sun['azimuth'])
-        
+
         x_offset = path_radius * np.cos(alt_rad) * np.sin(az_rad)
         y_offset = path_radius * np.cos(alt_rad) * np.cos(az_rad)
         z = path_radius * np.sin(alt_rad)
         sun_path_line.append([center_x + x_offset, center_y + y_offset, z])
-        
+
     hourly_times = pd.date_range(
         start=f"{date} {start_hour:02d}:00",
         end=f"{date} {end_hour-1:02d}:00",
@@ -234,7 +218,7 @@ def generate_sun_path_geometry(lat: float, lon: float, date: datetime.date, hour
     )
     hourly_position = location.get_solarposition(hourly_times)
     hourly_position = hourly_position[hourly_position['apparent_elevation'] > 5]
-    
+
     sun_hour_markers = []
     for index, sun in hourly_position.iterrows():
         alt_rad = np.deg2rad(sun['apparent_elevation'])
@@ -246,5 +230,5 @@ def generate_sun_path_geometry(lat: float, lon: float, date: datetime.date, hour
             "position": [center_x + x_offset, center_y + y_offset, z],
             "hour": f"{index.hour}:00"
         })
-        
+
     return sun_path_line, sun_hour_markers
