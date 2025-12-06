@@ -200,6 +200,222 @@ def create_lidar_lines_layer(dsm_data, dtm_data, transform, subsample=3):
         pickable=False
     )
 
+
+def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3, custom_colors=None):
+    """
+    Tworzy warstwę filarów 3D (ColumnLayer) od DTM do DSM.
+    
+    GEOMETRIA: Kwadraty wyrównane do osi (axis-aligned squares)
+    - Używa ColumnLayer z diskResolution=4 (kwadrat) i angle=45°
+    - radius = step / sqrt(2) aby bok kwadratu = step
+    
+    WYSOKOŚĆ (Z) - ColumnLayer:
+    - getPosition: [lon, lat, z_base] gdzie z_base = DTM (STARTUJE od terenu!)
+    - getElevation: height = DSM - DTM (wysokość filara)
+    
+    Args:
+        dsm_data: Dane DSM (Digital Surface Model)
+        dtm_data: Dane DTM (Digital Terrain Model)
+        transform: Transformacja rastrowa
+        subsample: Współczynnik podpróbkowania
+        custom_colors: Opcjonalna tablica kolorów [n, 4] w formacie RGBA.
+                       Musi mieć kształt zgodny z liczbą punktów po subsamplu i maskowaniu.
+                       Jeśli None - używa domyślnego koloru zielonego.
+    
+    Returns:
+        Tuple (layer, mask_indices) lub (None, None) jeśli brak danych.
+        mask_indices pozwala zmapować custom_colors do prawidłowych pozycji.
+    """
+    import math
+    
+    pixel_size = abs(transform.a)
+    step_meters = pixel_size * subsample
+    radius_meters = step_meters / math.sqrt(2)
+    
+    rows, cols = dsm_data.shape
+    
+    r_idx = np.arange(0, rows, subsample)
+    c_idx = np.arange(0, cols, subsample)
+    c_grid, r_grid = np.meshgrid(c_idx, r_idx)
+    
+    dsm_sub = dsm_data[::subsample, ::subsample]
+    dtm_sub = dtm_data[::subsample, ::subsample]
+    
+    height_diff = dsm_sub - dtm_sub
+    mask = (height_diff > 2.0) & (~np.isnan(dsm_sub)) & (~np.isnan(dtm_sub))
+    
+    if np.sum(mask) == 0:
+        return None, None
+
+    r_flat = r_grid[mask]
+    c_flat = c_grid[mask]
+    z_dsm = dsm_sub[mask]
+    z_dtm = dtm_sub[mask]
+    heights = z_dsm - z_dtm
+
+    xs, ys = rasterio.transform.xy(transform, r_flat, c_flat)
+    xs = np.array(xs)
+    ys = np.array(ys)
+
+    transformer_obj = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+    lons, lats = transformer_obj.transform(xs, ys)
+    lons = np.array(lons)
+    lats = np.array(lats)
+    
+    n = len(lons)
+    positions = np.column_stack((lons, lats, z_dtm))
+    
+    # Logika kolorów: custom_colors lub domyślny
+    if custom_colors is not None and len(custom_colors) == n:
+        colors = [list(c) for c in custom_colors]
+    else:
+        colors = [[154, 202, 165, 50]] * n
+    
+    pillar_data = pd.DataFrame({
+        'position': positions.tolist(),
+        'height': heights.tolist(),
+        'color': colors
+    })
+    
+    layer = pdk.Layer(
+        "ColumnLayer",
+        data=pillar_data,
+        get_position="position",
+        get_elevation="height",
+        radius=radius_meters,
+        disk_resolution=4,
+        angle=45,
+        extruded=True,
+        get_fill_color="color",
+        get_line_color=[100, 100, 100, 50],
+        elevation_scale=1,
+        pickable=False,
+        material=False,
+        parameters={"depthWriteEnabled": False},
+    )
+    
+    return layer, mask
+
+
+def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_polygons_2180=None, custom_colors=None):
+    """
+    Tworzy warstwę płaskich kafelków na wysokości DSM.
+    
+    GEOMETRIA: Kwadraty wyrównane do osi (axis-aligned squares)
+    - Siatka punktów o kroku S = pixel_size * step (w metrach)
+    - Offset = S/2 (połowa boku kwadratu)
+    - Wierzchołki w narożnikach: NE, SE, SW, NW
+    - Kwadraty stykają się krawędziami jak kafelki
+    
+    Args:
+        dsm_data: Dane DSM (Digital Surface Model)
+        transform: Transformacja rastrowa
+        subsample: Współczynnik podpróbkowania
+        parcel_polygons_2180: Lista poligonów działek w EPSG:2180 (używane gdy custom_colors=None)
+        custom_colors: Opcjonalna tablica kolorów [n, 4] w formacie RGBA.
+                       Jeśli podana - używa tych kolorów (np. dla analizy nasłonecznienia).
+                       Jeśli None - używa logiki działka/nie-działka (jaśniejszy/ciemniejszy zielony).
+    
+    Returns:
+        Tuple (layer, valid_mask, step) lub (None, None, None) jeśli brak danych.
+        - valid_mask: maska punktów bez NaN (do mapowania kolorów)
+        - step: rzeczywisty krok użyty do subsamplu
+    """
+    from matplotlib.path import Path
+    
+    pixel_size = abs(transform.a)
+    
+    MAX_POINTS = 100000
+    total_pixels = dsm_data.size
+    auto_step = int(np.ceil(np.sqrt(total_pixels / MAX_POINTS)))
+    step = max(auto_step, subsample)
+    
+    step_meters = pixel_size * step
+    half_size = step_meters / 2.0
+    
+    rows, cols = dsm_data.shape
+    dsm_sub = dsm_data[::step, ::step]
+    
+    r_idx = np.arange(0, rows, step)
+    c_idx = np.arange(0, cols, step)
+    c_grid, r_grid = np.meshgrid(c_idx, r_idx)
+    
+    xs, ys = rasterio.transform.xy(transform, r_grid.flatten(), c_grid.flatten())
+    z_vals = dsm_sub.flatten()
+    
+    valid_mask = ~np.isnan(z_vals)
+    xs = np.array(xs)[valid_mask]
+    ys = np.array(ys)[valid_mask]
+    z_vals = z_vals[valid_mask]
+    
+    n_points = len(xs)
+    
+    if n_points == 0:
+        return None, None, None
+
+    transformer_obj = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+    lons, lats = transformer_obj.transform(xs, ys)
+    lons = np.array(lons)
+    lats = np.array(lats)
+    
+    meters_per_deg_lat = 111132.954
+    lat_off = half_size / meters_per_deg_lat
+    lon_off = half_size / (meters_per_deg_lat * np.cos(np.deg2rad(lats)))
+    
+    # Wektoryzacja tworzenia poligonów z koordynatą Z
+    polygons = np.zeros((n_points, 4, 3))
+    polygons[:, 0, 0] = lons + lon_off      # NE - lon
+    polygons[:, 0, 1] = lats + lat_off      # NE - lat
+    polygons[:, 0, 2] = z_vals              # NE - z
+    polygons[:, 1, 0] = lons + lon_off      # SE - lon
+    polygons[:, 1, 1] = lats - lat_off      # SE - lat
+    polygons[:, 1, 2] = z_vals              # SE - z
+    polygons[:, 2, 0] = lons - lon_off      # SW - lon
+    polygons[:, 2, 1] = lats - lat_off      # SW - lat
+    polygons[:, 2, 2] = z_vals              # SW - z
+    polygons[:, 3, 0] = lons - lon_off      # NW - lon
+    polygons[:, 3, 1] = lats + lat_off      # NW - lat
+    polygons[:, 3, 2] = z_vals              # NW - z
+    
+    # Logika kolorów: custom_colors lub domyślna (działka/nie-działka)
+    if custom_colors is not None and len(custom_colors) == n_points:
+        colors = [list(c) for c in custom_colors]
+    else:
+        inside_parcel = np.zeros(n_points, dtype=bool)
+        if parcel_polygons_2180:
+            points_2180 = np.column_stack((xs, ys))
+            for poly in parcel_polygons_2180:
+                if poly is not None and poly.is_valid:
+                    poly_coords = np.array(poly.exterior.coords)
+                    path = Path(poly_coords)
+                    inside_parcel |= path.contains_points(points_2180)
+        
+        colors = np.where(
+            inside_parcel[:, np.newaxis],
+            np.array([[230, 240, 230, 220]]),
+            np.array([[160, 210, 170, 150]])
+        ).tolist()
+    
+    surface_data = pd.DataFrame({
+        'polygon': [p.tolist() for p in polygons],
+        'color': colors
+    })
+    
+    layer = pdk.Layer(
+        "PolygonLayer",
+        data=surface_data,
+        get_polygon="polygon",
+        get_fill_color="color",
+        filled=True,
+        extruded=False,
+        stroked=False,
+        pickable=False,
+        material=False,
+    )
+    
+    return layer, valid_mask, step
+
+
 def create_solar_analysis_layers(
     parcel_coords_wgs_84,
     map_center_wgs_84,

@@ -306,7 +306,10 @@ def get_cached_lidar_data(bbox):
 
 @st.cache_data(show_spinner=False)
 def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric):
-    # Reconstruct parcel_geoms from WKT
+    """
+    Przygotowuje geometrię LiDAR do analizy nasłonecznienia.
+    Tworzy warstwy wizualizacji z kwadratowymi kafelkami i filarami.
+    """
     parcel_geoms = [wkt.loads(g) for g in parcel_geoms_wkt]
     
     lidar_service = LidarService()
@@ -325,13 +328,21 @@ def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_
         dtm_for_viz = lidar_service.flatten_dsm_on_parcel(dtm_for_viz, dtm_data, transform, parcel_geoms, fill_with_nan=True)
     
     lidar_layers = []
-    lines_layer = visualization.create_lidar_lines_layer(dsm_for_viz, dtm_for_viz, transform, subsample=3)
-    if lines_layer:
-        lidar_layers.append(lines_layer)
-
-    point_cloud_layer = visualization.create_lidar_point_cloud_layer(dsm_for_viz, transform, subsample=2)
-    if point_cloud_layer:
-        lidar_layers.append(point_cloud_layer)
+    
+    # Warstwa filarów 3D (kwadraty od DTM do DSM) - tło wizualizacji
+    pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
+        dsm_for_viz, dtm_for_viz, transform, subsample=2
+    )
+    if pillars_layer:
+        lidar_layers.append(pillars_layer)
+    
+    # Warstwa powierzchni (płaskie kafelki na wysokości DSM) - tło wizualizacji
+    surface_layer, _, _ = visualization.create_lidar_square_surface_layer(
+        dsm_for_viz, transform, subsample=1,
+        parcel_polygons_2180=parcel_geoms
+    )
+    if surface_layer:
+        lidar_layers.append(surface_layer)
         
     scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, transform)
     
@@ -1073,16 +1084,21 @@ if st.session_state.show_search or st.session_state.map_center:
                                         parcel_polygons_2180.append(poly.buffer(0))
                             
                             lidar_layers = []
-                            lines_layer = visualization.create_lidar_lines_layer(dsm_viz, dtm_viz, transform_dsm, subsample=3)
-                            if lines_layer:
-                                lidar_layers.append(lines_layer)
                             
-                            point_cloud_layer = visualization.create_lidar_point_cloud_layer(
-                                dsm_viz, transform_dsm, subsample=2,
+                            # Warstwa filarów 3D (kwadraty od DTM do DSM)
+                            pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
+                                dsm_viz, dtm_viz, transform_dsm, subsample=2
+                            )
+                            if pillars_layer:
+                                lidar_layers.append(pillars_layer)
+                            
+                            # Warstwa powierzchni (płaskie kafelki na wysokości DSM)
+                            surface_layer, _, _ = visualization.create_lidar_square_surface_layer(
+                                dsm_viz, transform_dsm, subsample=1,
                                 parcel_polygons_2180=parcel_polygons_2180
                             )
-                            if point_cloud_layer:
-                                lidar_layers.append(point_cloud_layer)
+                            if surface_layer:
+                                lidar_layers.append(surface_layer)
                             
                             view_state = pdk.ViewState(
                                 latitude=map_center[0],
@@ -1116,7 +1132,6 @@ if st.session_state.show_search or st.session_state.map_center:
                             <strong>Obrót:</strong> Shift + przeciągnij |
                             <strong>Przesuwanie:</strong> Przeciągnij |
                             <strong>Zoom:</strong> Kółko myszy |
-                            <em style="color: #666;">(Białe punkty = obszar działki)</em>
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
