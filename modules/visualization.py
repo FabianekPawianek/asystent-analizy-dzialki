@@ -8,6 +8,22 @@ from shapely.geometry import Polygon
 from matplotlib import cm
 import modules.geospatial as geospatial
 
+MAX_VISUALIZATION_POINTS = 500000
+
+
+def calculate_visualization_step(total_pixels: int, user_subsample: int = 1) -> int:
+    if total_pixels > MAX_VISUALIZATION_POINTS:
+        auto_step = int(np.ceil(np.sqrt(total_pixels / MAX_VISUALIZATION_POINTS)))
+    else:
+        auto_step = 1
+    
+    final_step = max(user_subsample, auto_step)
+    
+    print(f"DEBUG_VIZ: total_pixels={total_pixels}, auto_step={auto_step}, "
+          f"user_subsample={user_subsample}, final_step={final_step}", flush=True)
+    
+    return final_step
+
 def value_to_rgb(value, min_val, max_val, colormap='plasma'):
     if max_val == min_val:
         norm_value = 0.5
@@ -40,11 +56,11 @@ def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
 
     return f"{header}{title}{content}</div></div>"
 
-def get_buildings_layer(map_center_wgs_84):
+def get_buildings_layer(map_center_wgs_84, osm_radius: int = 300):
     try:
         tags = {"building": True}
         gdf_buildings = ox.features_from_point(
-            (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=300
+            (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=osm_radius
         )
         buildings_data_for_pydeck = []
         if not gdf_buildings.empty:
@@ -78,28 +94,17 @@ def get_buildings_layer(map_center_wgs_84):
         return None, []
 
 def create_lidar_point_cloud_layer(dsm_data, transform, subsample=2, parcel_polygons_2180=None):
-    """
-    Tworzy warstwę chmury punktów LiDAR.
-    
-    Args:
-        dsm_data: Dane DSM
-        transform: Transformacja rastrowa
-        subsample: Współczynnik podpróbkowania
-        parcel_polygons_2180: Lista poligonów działek w EPSG:2180 (shapely Polygon).
-                              Punkty wewnątrz będą kolorowane na biało.
-    """
     from matplotlib.path import Path
     
-    MAX_POINTS = 150000
-    total_pixels = dsm_data.size
-    step = int(np.ceil(np.sqrt(total_pixels / MAX_POINTS)))
-    step = max(step, 1)
-    
     rows, cols = dsm_data.shape
-    dsm_sub = dsm_data[::step, ::step]
+    total_pixels = rows * cols
     
-    r_idx = np.arange(0, rows, step)
-    c_idx = np.arange(0, cols, step)
+    final_step = calculate_visualization_step(total_pixels, subsample)
+    
+    dsm_sub = dsm_data[::final_step, ::final_step]
+    
+    r_idx = np.arange(0, rows, final_step)
+    c_idx = np.arange(0, cols, final_step)
     c_grid, r_grid = np.meshgrid(c_idx, r_idx)
     
     xs, ys = rasterio.transform.xy(transform, r_grid.flatten(), c_grid.flatten())
@@ -202,44 +207,23 @@ def create_lidar_lines_layer(dsm_data, dtm_data, transform, subsample=3):
 
 
 def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3, custom_colors=None):
-    """
-    Tworzy warstwę filarów 3D (ColumnLayer) od DTM do DSM.
-    
-    GEOMETRIA: Kwadraty wyrównane do osi (axis-aligned squares)
-    - Używa ColumnLayer z diskResolution=4 (kwadrat) i angle=45°
-    - radius = step / sqrt(2) aby bok kwadratu = step
-    
-    WYSOKOŚĆ (Z) - ColumnLayer:
-    - getPosition: [lon, lat, z_base] gdzie z_base = DTM (STARTUJE od terenu!)
-    - getElevation: height = DSM - DTM (wysokość filara)
-    
-    Args:
-        dsm_data: Dane DSM (Digital Surface Model)
-        dtm_data: Dane DTM (Digital Terrain Model)
-        transform: Transformacja rastrowa
-        subsample: Współczynnik podpróbkowania
-        custom_colors: Opcjonalna tablica kolorów [n, 4] w formacie RGBA.
-                       Musi mieć kształt zgodny z liczbą punktów po subsamplu i maskowaniu.
-                       Jeśli None - używa domyślnego koloru zielonego.
-    
-    Returns:
-        Tuple (layer, mask_indices) lub (None, None) jeśli brak danych.
-        mask_indices pozwala zmapować custom_colors do prawidłowych pozycji.
-    """
     import math
     
     pixel_size = abs(transform.a)
-    step_meters = pixel_size * subsample
+    rows, cols = dsm_data.shape
+    total_pixels = rows * cols
+    
+    final_step = calculate_visualization_step(total_pixels, subsample)
+    
+    step_meters = pixel_size * final_step
     radius_meters = step_meters / math.sqrt(2)
     
-    rows, cols = dsm_data.shape
-    
-    r_idx = np.arange(0, rows, subsample)
-    c_idx = np.arange(0, cols, subsample)
+    r_idx = np.arange(0, rows, final_step)
+    c_idx = np.arange(0, cols, final_step)
     c_grid, r_grid = np.meshgrid(c_idx, r_idx)
     
-    dsm_sub = dsm_data[::subsample, ::subsample]
-    dtm_sub = dtm_data[::subsample, ::subsample]
+    dsm_sub = dsm_data[::final_step, ::final_step]
+    dtm_sub = dtm_data[::final_step, ::final_step]
     
     height_diff = dsm_sub - dtm_sub
     mask = (height_diff > 2.0) & (~np.isnan(dsm_sub)) & (~np.isnan(dtm_sub))
@@ -265,7 +249,6 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
     n = len(lons)
     positions = np.column_stack((lons, lats, z_dtm))
     
-    # Logika kolorów: custom_colors lub domyślny
     if custom_colors is not None and len(custom_colors) == n:
         colors = [list(c) for c in custom_colors]
     else:
@@ -298,46 +281,21 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
 
 
 def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_polygons_2180=None, custom_colors=None):
-    """
-    Tworzy warstwę płaskich kafelków na wysokości DSM.
-    
-    GEOMETRIA: Kwadraty wyrównane do osi (axis-aligned squares)
-    - Siatka punktów o kroku S = pixel_size * step (w metrach)
-    - Offset = S/2 (połowa boku kwadratu)
-    - Wierzchołki w narożnikach: NE, SE, SW, NW
-    - Kwadraty stykają się krawędziami jak kafelki
-    
-    Args:
-        dsm_data: Dane DSM (Digital Surface Model)
-        transform: Transformacja rastrowa
-        subsample: Współczynnik podpróbkowania
-        parcel_polygons_2180: Lista poligonów działek w EPSG:2180 (używane gdy custom_colors=None)
-        custom_colors: Opcjonalna tablica kolorów [n, 4] w formacie RGBA.
-                       Jeśli podana - używa tych kolorów (np. dla analizy nasłonecznienia).
-                       Jeśli None - używa logiki działka/nie-działka (jaśniejszy/ciemniejszy zielony).
-    
-    Returns:
-        Tuple (layer, valid_mask, step) lub (None, None, None) jeśli brak danych.
-        - valid_mask: maska punktów bez NaN (do mapowania kolorów)
-        - step: rzeczywisty krok użyty do subsamplu
-    """
     from matplotlib.path import Path
     
     pixel_size = abs(transform.a)
+    rows, cols = dsm_data.shape
+    total_pixels = rows * cols
     
-    MAX_POINTS = 100000
-    total_pixels = dsm_data.size
-    auto_step = int(np.ceil(np.sqrt(total_pixels / MAX_POINTS)))
-    step = max(auto_step, subsample)
+    final_step = calculate_visualization_step(total_pixels, subsample)
     
-    step_meters = pixel_size * step
+    step_meters = pixel_size * final_step
     half_size = step_meters / 2.0
     
-    rows, cols = dsm_data.shape
-    dsm_sub = dsm_data[::step, ::step]
+    dsm_sub = dsm_data[::final_step, ::final_step]
     
-    r_idx = np.arange(0, rows, step)
-    c_idx = np.arange(0, cols, step)
+    r_idx = np.arange(0, rows, final_step)
+    c_idx = np.arange(0, cols, final_step)
     c_grid, r_grid = np.meshgrid(c_idx, r_idx)
     
     xs, ys = rasterio.transform.xy(transform, r_grid.flatten(), c_grid.flatten())
@@ -362,7 +320,6 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
     lat_off = half_size / meters_per_deg_lat
     lon_off = half_size / (meters_per_deg_lat * np.cos(np.deg2rad(lats)))
     
-    # Wektoryzacja tworzenia poligonów z koordynatą Z
     polygons = np.zeros((n_points, 4, 3))
     polygons[:, 0, 0] = lons + lon_off      # NE - lon
     polygons[:, 0, 1] = lats + lat_off      # NE - lat
@@ -377,7 +334,6 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
     polygons[:, 3, 1] = lats + lat_off      # NW - lat
     polygons[:, 3, 2] = z_vals              # NW - z
     
-    # Logika kolorów: custom_colors lub domyślna (działka/nie-działka)
     if custom_colors is not None and len(custom_colors) == n_points:
         colors = [list(c) for c in custom_colors]
     else:
@@ -413,7 +369,7 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
         material=False,
     )
     
-    return layer, valid_mask, step
+    return layer, valid_mask, final_step
 
 
 def create_solar_analysis_layers(
@@ -424,14 +380,15 @@ def create_solar_analysis_layers(
     sun_path_data=None,
     analemma_data=None,
     azimuth_data=None,
-    show_buildings=True
+    show_buildings=True,
+    scale_factor=1.0,
+    osm_radius: int = 300
 ):
-
     layers = []
     
     buildings_data = []
     if show_buildings:
-        buildings_layer, buildings_data = get_buildings_layer(map_center_wgs_84)
+        buildings_layer, buildings_data = get_buildings_layer(map_center_wgs_84, osm_radius=osm_radius)
         if buildings_layer:
             layers.append(buildings_layer)
 
@@ -561,12 +518,14 @@ def create_solar_analysis_layers(
                     path_wgs.append([p_wgs[0], p_wgs[1], p[2]])
                 sun_paths_wgs84.append({"path": path_wgs, "name": sp.get('name', '')})
             
+            sun_path_width = 1
+            
             sun_path_layer = pdk.Layer(
                 "PathLayer",
                 data=sun_paths_wgs84,
                 get_path="path",
                 get_color=[140, 140, 140, 160],
-                get_width=1,
+                get_width=sun_path_width,
                 width_min_pixels=1,
                 billboard=True
             )
@@ -583,7 +542,7 @@ def create_solar_analysis_layers(
                 data=[{"path": sun_path_wgs84_3d}],
                 get_path="path",
                 get_color=[140, 140, 140, 160],
-                get_width=1,
+                get_width=1 * scale_factor,
                 width_min_pixels=1,
                 billboard=True
             )
@@ -597,12 +556,14 @@ def create_solar_analysis_layers(
                     "position": [pos_wgs[0], pos_wgs[1], pos_metric[2]],
                     "hour": marker['hour']
                 })
+            
+            sun_marker_radius = 12 * scale_factor
                 
             sun_markers_layer = pdk.Layer(
                 "ScatterplotLayer",
                 data=sun_markers_wgs84,
                 get_position="position",
-                get_radius=12,
+                get_radius=sun_marker_radius,
                 filled=True,
                 get_fill_color=[255, 223, 0, 255],
                 stroked=False,
@@ -655,6 +616,8 @@ def create_solar_analysis_layers(
                         "target": tgt
                     })
 
+            analemma_width = 1
+            
             layer = pdk.Layer(
                 "LineLayer",
                 id=f"analemma_segments_{hour}",
@@ -662,7 +625,7 @@ def create_solar_analysis_layers(
                 get_source_position="source",
                 get_target_position="target",
                 get_color=[100, 100, 100, 180],
-                get_width=1,
+                get_width=analemma_width,
                 width_min_pixels=1,
                 pickable=False,
                 auto_highlight=False
@@ -682,12 +645,14 @@ def create_solar_analysis_layers(
                 "label": m['label']
             })
             
+        text_size = 14
+        
         azimuth_text_layer = pdk.Layer(
             "TextLayer",
             data=markers_wgs84,
             get_position="position",
             get_text="label",
-            get_size=14,
+            get_size=text_size,
             get_color=[80, 80, 80, 255],
             get_angle=0,
             get_text_anchor="'middle'",
@@ -708,12 +673,15 @@ def create_solar_analysis_layers(
                 "is_main": l['is_main']
             })
             
+        main_width = 1.5 * scale_factor
+        secondary_width = 1.0 * scale_factor
+        
         compass_main_layer = pdk.Layer(
             "PathLayer",
             data=[l for l in lines_wgs84 if l['is_main']],
             get_path="path",
             get_color=[90, 90, 90, 150],
-            get_width=1.5,
+            get_width=main_width,
             width_min_pixels=1,
             billboard=True
         )
@@ -722,7 +690,7 @@ def create_solar_analysis_layers(
             data=[l for l in lines_wgs84 if not l['is_main']],
             get_path="path",
             get_color=[120, 120, 120, 120],
-            get_width=1,
+            get_width=secondary_width,
             width_min_pixels=1,
             billboard=True
         )

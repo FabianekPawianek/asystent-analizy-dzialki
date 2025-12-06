@@ -41,12 +41,13 @@ except Exception as e:
 
 
 
-def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center_wgs_84, map_style: str):
+def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center_wgs_84, map_style: str, osm_radius: int = 300):
     try:
 
         layers, buildings_data = visualization.create_solar_analysis_layers(
             parcel_coords_wgs_84=all_parcel_coords_list,
-            map_center_wgs_84=map_center_wgs_84
+            map_center_wgs_84=map_center_wgs_84,
+            osm_radius=osm_radius
         )
         
         view_state = pdk.ViewState(
@@ -54,7 +55,8 @@ def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center
             longitude=map_center_wgs_84[1],
             zoom=17.5,
             pitch=50,
-            bearing=0
+            bearing=0,
+            max_pitch=85
         )
 
         return pdk.Deck(
@@ -71,11 +73,11 @@ def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center
 
 
 
-def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_style: str):
+def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_style: str, osm_radius: int = 300):
     try:
         tags = {"building": True}
         gdf_buildings = ox.features_from_point(
-            (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=300
+            (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=osm_radius
         )
         buildings_data_for_pydeck = []
         if not gdf_buildings.empty:
@@ -109,7 +111,7 @@ def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_
                                extruded=False, get_elevation="height", filled=True, 
                                get_fill_color=[40, 167, 69, 180],
                                get_line_color=[40, 167, 69, 0], get_line_width=0)
-        view_state = pdk.ViewState(latitude=map_center_wgs_84[0], longitude=map_center_wgs_84[1], zoom=17.5, pitch=50, bearing=0)
+        view_state = pdk.ViewState(latitude=map_center_wgs_84[0], longitude=map_center_wgs_84[1], zoom=17.5, pitch=50, bearing=0, max_pitch=85)
         layers_to_render = [layer_parcel, layer_buildings] if buildings_data_for_pydeck else [layer_parcel]
 
         return pdk.Deck(
@@ -125,11 +127,11 @@ def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_
         return None
 
 
-def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style: str):
+def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style: str, osm_radius: int = 300):
     try:
         tags = {"building": True}
         gdf_buildings = ox.features_from_point(
-            (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=300
+            (map_center_wgs_84[0], map_center_wgs_84[1]), tags, dist=osm_radius
         )
         buildings_data_for_pydeck = []
         if not gdf_buildings.empty:
@@ -150,7 +152,7 @@ def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style:
         parcel_polygon_coords = [list(Polygon(parcel_coords_wgs_84).exterior.coords)]
         parcel_data_for_pydeck = [{"polygon": parcel_polygon_coords, "height": 1.0}]
         layer_parcel = pdk.Layer("PolygonLayer", data=parcel_data_for_pydeck, get_polygon="polygon", extruded=False, get_elevation="height", filled=False, get_line_color=[255, 0, 0, 255], get_line_width=1, line_width_min_pixels=2)
-        view_state = pdk.ViewState(latitude=map_center_wgs_84[0], longitude=map_center_wgs_84[1], zoom=17.5, pitch=50, bearing=0)
+        view_state = pdk.ViewState(latitude=map_center_wgs_84[0], longitude=map_center_wgs_84[1], zoom=17.5, pitch=50, bearing=0, max_pitch=85)
         layers_to_render = [layer_parcel]
         if buildings_data_for_pydeck: layers_to_render.append(layer_buildings)
 
@@ -177,8 +179,8 @@ def generate_sun_path_data(lat: float, lon: float, analysis_date: datetime.date,
     return solar.generate_sun_path_geometry(lat, lon, analysis_date, hour_range, map_center_metric)
 
 
-def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_center_metric: tuple):
-    path_radius = 300
+def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_center_metric: tuple, scale_radius: float = 300):
+    path_radius = scale_radius
     center_x, center_y = map_center_metric[0], map_center_metric[1]
     tz = 'Europe/Warsaw'
     location = pvlib.location.Location(lat, lon, tz=tz)
@@ -261,12 +263,17 @@ def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_ce
     azimuth_lines = []
     cardinal_directions = {0: 'N', 90: 'E', 180: 'S', 270: 'W'}
     main_cardinals = [0, 90, 180, 270]
+    
+    scale_factor = path_radius / 300.0
 
     for azimuth_deg in range(0, 360, 30):
         az_rad = np.deg2rad(azimuth_deg)
-        extension = 40 if azimuth_deg in main_cardinals else 25
-        x_label = (path_radius + extension + 15) * np.sin(az_rad)
-        y_label = (path_radius + extension + 15) * np.cos(az_rad)
+        base_extension = 40 if azimuth_deg in main_cardinals else 25
+        extension = base_extension * scale_factor
+        label_offset = 15 * scale_factor
+        
+        x_label = (path_radius + extension + label_offset) * np.sin(az_rad)
+        y_label = (path_radius + extension + label_offset) * np.cos(az_rad)
 
         if azimuth_deg in cardinal_directions:
             label = f"{cardinal_directions[azimuth_deg]} ({azimuth_deg} deg)"
@@ -283,11 +290,12 @@ def generate_complete_sun_path_diagram(lat: float, lon: float, year: int, map_ce
         x_outer = (path_radius + extension) * np.sin(az_rad)
         y_outer = (path_radius + extension) * np.cos(az_rad)
         azimuth_lines.append({
-            'path': [[center_x + x_inner, center_y + y_inner, 0.5], [center_x + x_outer, center_y + y_outer, 1.0]],
+            'path': [[center_x + x_inner, center_y + y_inner, 0.5 * scale_factor], 
+                     [center_x + x_outer, center_y + y_outer, 1.0 * scale_factor]],
             'azimuth': azimuth_deg, 'is_main': azimuth_deg in main_cardinals
         })
 
-    return sun_paths, analemmas, azimuth_markers, azimuth_lines
+    return sun_paths, analemmas, azimuth_markers, azimuth_lines, scale_factor
 
 
 def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.ndarray:
@@ -305,11 +313,7 @@ def get_cached_lidar_data(bbox):
     return dsm_data, transform, dtm_data, dtm_transform
 
 @st.cache_data(show_spinner=False)
-def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric):
-    """
-    Przygotowuje geometrię LiDAR do analizy nasłonecznienia.
-    Tworzy warstwy wizualizacji z kwadratowymi kafelkami i filarami.
-    """
+def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric, calc_downsample: int = 4):
     parcel_geoms = [wkt.loads(g) for g in parcel_geoms_wkt]
     
     lidar_service = LidarService()
@@ -329,22 +333,21 @@ def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_
     
     lidar_layers = []
     
-    # Warstwa filarów 3D (kwadraty od DTM do DSM) - tło wizualizacji
     pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
         dsm_for_viz, dtm_for_viz, transform, subsample=2
     )
     if pillars_layer:
         lidar_layers.append(pillars_layer)
     
-    # Warstwa powierzchni (płaskie kafelki na wysokości DSM) - tło wizualizacji
     surface_layer, _, _ = visualization.create_lidar_square_surface_layer(
         dsm_for_viz, transform, subsample=1,
         parcel_polygons_2180=parcel_geoms
     )
     if surface_layer:
         lidar_layers.append(surface_layer)
-        
-    scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, transform)
+    
+    print(f"DEBUG: Creating Trimesh with downsample_factor={calc_downsample}", flush=True)
+    scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, transform, downsample_factor=calc_downsample)
     
     z_values = lidar_service.sample_height_for_points(dtm_data, dtm_transform, grid_points_metric[:, :2])
     grid_points_metric[:, 2] = z_values + 0.5
@@ -399,9 +402,17 @@ def run_solar_simulation(
         height_m = lidar_bbox[3] - lidar_bbox[1]
         print(f"DEBUG: BBOX Dimensions: {width_m:.2f}m x {height_m:.2f}m")
         
-        if width_m > 2000 or height_m > 2000:
-            st.error(f"Zbyt duży obszar analizy: {width_m:.0f}x{height_m:.0f}m. Zmniejsz bufor.")
-            return None
+        max_dim = max(width_m, height_m)
+        if max_dim >= 1500:
+            calc_downsample = 8  # ~64x mniej trójkątów
+        elif max_dim >= 800:
+            calc_downsample = 6  # ~36x mniej trójkątów
+        elif max_dim >= 400:
+            calc_downsample = 4  # ~16x mniej trójkątów (domyślnie)
+        else:
+            calc_downsample = 2  # Mały obszar - wysoka dokładność
+        
+        print(f"DEBUG: calc_downsample={calc_downsample} (max_dim={max_dim:.0f}m)", flush=True)
 
         try:
             dsm_data, transform, dtm_data, dtm_transform = get_cached_lidar_data(lidar_bbox)
@@ -415,7 +426,8 @@ def run_solar_simulation(
                         parcel_geoms_wkt.append(p_data['Geometria'])
             
             scene, grid_points_metric, lidar_layers = prepare_lidar_geometry(
-                dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric
+                dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric,
+                calc_downsample=calc_downsample
             )
             
             st.session_state['lidar_point_cloud_layer'] = lidar_layers
@@ -1002,14 +1014,27 @@ if st.session_state.show_search or st.session_state.map_center:
     st.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
     
     if st.session_state.selected_parcels:
-        view_3d_source = st.radio(
-            "Wybierz źródło modelu 3D:",
-            options=["OSM (Budynki)", "LiDAR (Geoportal)"],
-            index=0,
-            horizontal=True,
-            key="view_3d_source_radio",
-            help="OSM pokazuje budynki z OpenStreetMap. LiDAR pokazuje dokładny model terenu z chmurą punktów."
-        )
+        col_source, col_radius = st.columns([1, 1])
+        
+        with col_source:
+            view_3d_source = st.radio(
+                "Wybierz źródło modelu 3D:",
+                options=["OSM (Budynki)", "LiDAR (Geoportal)"],
+                index=0,
+                horizontal=True,
+                key="view_3d_source_radio",
+                help="OSM pokazuje budynki z OpenStreetMap. LiDAR pokazuje dokładny model terenu z chmurą punktów."
+            )
+        
+        with col_radius:
+            radius_3d = st.radio(
+                "Promień analizy (metry):",
+                options=[250, 500, 1000],
+                index=1,
+                horizontal=True,
+                key="radius_3d",
+                help="Określa zasięg pobieranych danych wokół działki. Większy promień = więcej kontekstu, ale dłuższe ładowanie."
+            )
         
         show_3d_context = st.button(
             "Wygeneruj widok 3D otoczenia",
@@ -1022,10 +1047,13 @@ if st.session_state.show_search or st.session_state.map_center:
             st.session_state.show_3d = False
         if 'view_3d_source' not in st.session_state:
             st.session_state.view_3d_source = "OSM (Budynki)"
+        if 'radius_3d_value' not in st.session_state:
+            st.session_state.radius_3d_value = 500
 
         if show_3d_context:
             st.session_state.show_3d = True
             st.session_state.view_3d_source = view_3d_source
+            st.session_state.radius_3d_value = radius_3d
 
         if st.session_state.show_3d:
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 3rem 0 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
@@ -1052,7 +1080,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 maxx = max(p[0] for p in all_coords)
                 miny = min(p[1] for p in all_coords)
                 maxy = max(p[1] for p in all_coords)
-                buffer = 150
+                buffer = st.session_state.radius_3d_value
                 current_lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
                 
                 parcel_ids_key = tuple(sorted([p['ID Działki'] for p in st.session_state.selected_parcels]))
@@ -1085,14 +1113,12 @@ if st.session_state.show_search or st.session_state.map_center:
                             
                             lidar_layers = []
                             
-                            # Warstwa filarów 3D (kwadraty od DTM do DSM)
                             pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
                                 dsm_viz, dtm_viz, transform_dsm, subsample=2
                             )
                             if pillars_layer:
                                 lidar_layers.append(pillars_layer)
                             
-                            # Warstwa powierzchni (płaskie kafelki na wysokości DSM)
                             surface_layer, _, _ = visualization.create_lidar_square_surface_layer(
                                 dsm_viz, transform_dsm, subsample=1,
                                 parcel_polygons_2180=parcel_polygons_2180
@@ -1105,7 +1131,8 @@ if st.session_state.show_search or st.session_state.map_center:
                                 longitude=map_center[1],
                                 zoom=17.5,
                                 pitch=50,
-                                bearing=0
+                                bearing=0,
+                                max_pitch=85
                             )
                             
                             deck_3d_view = pdk.Deck(
@@ -1129,9 +1156,9 @@ if st.session_state.show_search or st.session_state.map_center:
                     <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
                         <p style="margin: 0; color: #424242; font-size: 0.95rem;">
                             <strong>Sterowanie kamerą:</strong>
-                            <strong>Obrót:</strong> Shift + przeciągnij |
+                            <strong>Obrót:</strong> Shift/Ctrl + przeciągnij |
                             <strong>Przesuwanie:</strong> Przeciągnij |
-                            <strong>Zoom:</strong> Kółko myszy |
+                            <strong>Zoom:</strong> Kółko myszy
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
@@ -1152,20 +1179,21 @@ if st.session_state.show_search or st.session_state.map_center:
                             single_parcel_coords = [(p[1], p[0]) for p in coords_closed]
                             all_parcel_coords_list.append(single_parcel_coords)
                     
+                    osm_radius = st.session_state.radius_3d_value
                     if all_parcel_coords_list:
                         deck_3d_view = generate_3d_context_view_multiple_parcels(
-                            all_parcel_coords_list, map_center, map_style=selected_map_style
+                            all_parcel_coords_list, map_center, map_style=selected_map_style, osm_radius=osm_radius
                         )
                     else:
                         deck_3d_view = generate_3d_context_view(
-                            [], map_center, map_style=selected_map_style
+                            [], map_center, map_style=selected_map_style, osm_radius=osm_radius
                         )
                     if deck_3d_view:
                         st.markdown("""
                         <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
                             <p style="margin: 0; color: #424242; font-size: 0.95rem;">
                                 <strong>Sterowanie kamerą:</strong>
-                                <strong>Obrót:</strong> Shift + przeciągnij |
+                                <strong>Obrót:</strong> PPM + przeciągnij |
                                 <strong>Przesuwanie:</strong> Przeciągnij |
                                 <strong>Zoom:</strong> Kółko myszy
                             </p>
@@ -1228,13 +1256,27 @@ if st.session_state.show_search or st.session_state.map_center:
             </div>
             """, unsafe_allow_html=True)
 
-            data_source = st.radio(
-                "Źródło danych 3D:",
-                options=["OSM (Budynki)", "LiDAR (Geoportal)"],
-                index=0,
-                horizontal=True,
-                help="Wybierz źródło danych do analizy cienia. OSM jest szybsze, ale mniej dokładne. LiDAR uwzględnia teren, drzewa i kształty dachów."
-            )
+            col_src_solar, col_rad_solar = st.columns([1, 1])
+            
+            with col_src_solar:
+                data_source = st.radio(
+                    "Źródło danych 3D:",
+                    options=["OSM (Budynki)", "LiDAR (Geoportal)"],
+                    index=0,
+                    horizontal=True,
+                    key="solar_data_source",
+                    help="Wybierz źródło danych do analizy cienia. OSM jest szybsze, ale mniej dokładne. LiDAR uwzględnia teren, drzewa i kształty dachów."
+                )
+            
+            with col_rad_solar:
+                radius_solar = st.radio(
+                    "Promień analizy (metry):",
+                    options=[250, 500, 1000],
+                    index=1,
+                    horizontal=True,
+                    key="radius_solar",
+                    help="Określa zasięg pobieranych danych wokół działki. Większy promień = dokładniejsze cienie, ale dłuższa analiza."
+                )
             
             today = datetime(2025, 1, 1).date()
             selected_date_range = st.date_input(
@@ -1273,7 +1315,8 @@ if st.session_state.show_search or st.session_state.map_center:
                             'end_date': end_date,
                             'hour_range': hour_range,
                             'sampling_freq': sampling_freq,
-                            'data_source': data_source
+                            'data_source': data_source,
+                            'analysis_radius': radius_solar
                         }
                         st.rerun()
 
@@ -1284,6 +1327,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 hour_range = params['hour_range']
                 sampling_freq = params['sampling_freq']
                 data_source = params['data_source']
+                analysis_radius = params.get('analysis_radius', 500)
 
                 from shapely.geometry import Polygon as ShapelyPolygon
                 from shapely.ops import unary_union
@@ -1364,7 +1408,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             analysis_map_center = (53.4285, 14.5511)
 
                     gdf_buildings_wgs84 = ox.features_from_point((analysis_map_center[0], analysis_map_center[1]), {"building": True},
-                                                                 dist=350)
+                                                                 dist=analysis_radius)
                     gdf_buildings_metric = gdf_buildings_wgs84.to_crs("epsg:2180")
 
                     buildings_data_metric = []
@@ -1410,20 +1454,21 @@ if st.session_state.show_search or st.session_state.map_center:
                             (tuple(b['polygon']), b['height']) for b in buildings_data_metric
                         )
 
-                        total_sunlit_hours = np.zeros(len(grid_points_2180))
+                        total_sunlit_hours = np.zeros(len(grid_points_2180), dtype=np.float32)
                         date_range = pd.date_range(start_date, end_date)
 
                         lidar_bbox = None
                         use_lidar = (data_source == "LiDAR (Geoportal)")
+                        progress_container = None
                         
                         if use_lidar:
                             minx, miny, maxx, maxy = parcel_poly_2180.bounds
-                            buffer = 200
+                            buffer = analysis_radius
                             lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
                             progress_container = st.empty()
 
                         for single_date in date_range:
-                            total_sunlit_hours += run_solar_simulation(
+                            result = run_solar_simulation(
                                 buildings_data_for_cache,
                                 grid_points_2180,
                                 analysis_map_center[0], analysis_map_center[1], single_date,
@@ -1434,6 +1479,15 @@ if st.session_state.show_search or st.session_state.map_center:
                                 target_parcel_geometry=parcel_poly_2180 if use_lidar else None,
                                 progress_container=progress_container
                             )
+                            
+                            if result is None:
+                                continue
+                            if not isinstance(result, np.ndarray):
+                                result = np.array(result, dtype=np.float32)
+                            elif result.dtype != np.float32:
+                                result = result.astype(np.float32)
+                            
+                            total_sunlit_hours += result
 
                         average_sunlit_hours = total_sunlit_hours / len(date_range)
                         transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
@@ -1445,8 +1499,11 @@ if st.session_state.show_search or st.session_state.map_center:
                         map_center_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True).transform(
                             analysis_map_center[1], analysis_map_center[0])
 
-                        sun_paths, analemmas, azimuth_markers, azimuth_lines = generate_complete_sun_path_diagram(
-                            analysis_map_center[0], analysis_map_center[1], viz_date.year, map_center_metric
+                        sun_diagram_radius = analysis_radius * 1.2
+                        
+                        sun_paths, analemmas, azimuth_markers, azimuth_lines, diagram_scale_factor = generate_complete_sun_path_diagram(
+                            analysis_map_center[0], analysis_map_center[1], viz_date.year, map_center_metric,
+                            scale_radius=sun_diagram_radius
                         )
 
                         sun_position_markers = []
@@ -1464,9 +1521,9 @@ if st.session_state.show_search or st.session_state.map_center:
                                     if elevation > 0:
                                         alt_rad = np.deg2rad(elevation)
                                         az_rad = np.deg2rad(azimuth_val)
-                                        x_offset = 300 * np.cos(alt_rad) * np.sin(az_rad)
-                                        y_offset = 300 * np.cos(alt_rad) * np.cos(az_rad)
-                                        z = 300 * np.sin(alt_rad)
+                                        x_offset = sun_diagram_radius * np.cos(alt_rad) * np.sin(az_rad)
+                                        y_offset = sun_diagram_radius * np.cos(alt_rad) * np.cos(az_rad)
+                                        z = sun_diagram_radius * np.sin(alt_rad)
                                         sun_position_markers.append({
                                             'position': [map_center_metric[0] + x_offset, map_center_metric[1] + y_offset, z],
                                             'date': str(single_date),
@@ -1483,7 +1540,8 @@ if st.session_state.show_search or st.session_state.map_center:
                                                                    "azimuth_lines": azimuth_lines,
                                                                    "sun_position_markers": sun_position_markers,
                                                                    "analysis_map_center": analysis_map_center,
-                                                                   "data_source": data_source}
+                                                                   "data_source": data_source,
+                                                                   "diagram_scale_factor": diagram_scale_factor}
                     else:
                         st.session_state.solar_analysis_results = None
                 
@@ -1510,6 +1568,8 @@ if st.session_state.show_search or st.session_state.map_center:
                     
                     is_lidar = data.get('data_source') == "LiDAR (Geoportal)"
                     
+                    diagram_scale = data.get('diagram_scale_factor', 1.0)
+                    
                     layers, _ = visualization.create_solar_analysis_layers(
                         parcel_coords_wgs_84=parcel_coords,
                         map_center_wgs_84=data['analysis_map_center'],
@@ -1518,7 +1578,8 @@ if st.session_state.show_search or st.session_state.map_center:
                         sun_path_data=data['sun_paths'],
                         analemma_data=data['analemmas'],
                         azimuth_data=(data['azimuth_markers'], data['azimuth_lines']),
-                        show_buildings=not is_lidar
+                        show_buildings=not is_lidar,
+                        scale_factor=diagram_scale
                     )
                     
                     sun_positions_wgs84 = []
@@ -1529,9 +1590,12 @@ if st.session_state.show_search or st.session_state.map_center:
                             "position": [pos_wgs[0], pos_wgs[1], sp['position'][2]]
                         })
                     
+                    scale_factor = data.get('diagram_scale_factor', 1.0)
+                    sun_marker_radius = 12 * scale_factor  # Bazowy promień 12m
+                    
                     sun_markers_layer = pdk.Layer("ScatterplotLayer", data=sun_positions_wgs84,
                                                  get_position="position",
-                                                 get_radius=12, filled=True,
+                                                 get_radius=sun_marker_radius, filled=True,
                                                  get_fill_color=[255, 223, 0, 255],
                                                  stroked=False, billboard=True)
                     layers.append(sun_markers_layer)
@@ -1553,7 +1617,7 @@ if st.session_state.show_search or st.session_state.map_center:
                     
                     r = pdk.Deck(layers=layers,
                                  initial_view_state=pdk.ViewState(latitude=display_map_center[0], longitude=display_map_center[1],
-                                                                  zoom=17.5, pitch=50, bearing=0),
+                                                                  zoom=17.5, pitch=50, bearing=0, max_pitch=85),
                                  map_style=None)
 
                     st.pydeck_chart(r, use_container_width=True, height=600)

@@ -24,18 +24,23 @@ Hostowane na Hugging Face Spaces.
 - **Funkcja:** Wyszukiwanie działki po adresie, interaktywna mapa z warstwami satelitarnymi, automatyczna identyfikacja granic (ULDK/GUGIK), możliwość wyboru i analizy wielu działek jednocześnie.
 - **Zastosowanie:** Błyskawiczna i precyzyjna weryfikacja lokalizacji i granic prawnych działki. Możliwość analizy wielu działek naraz dla kompleksowej oceny obszaru, z automatycznym centrowaniem mapy na wybranej działce.
 
-### 2. Zaawansowana Analiza Nasłonecznienia LiDAR (NOWOŚĆ)
+### 2. Zaawansowana Analiza Nasłonecznienia LiDAR
 - **Funkcja:** Symulacja ray-tracing oparta na Numerycznym Modelu Pokrycia Terenu (DSM) z Geoportalu.
 - **Unikalność:** W przeciwieństwie do standardowych narzędzi opartych o proste bryły, system ten **uwzględnia realną zieleń (drzewa), ukształtowanie terenu oraz istniejącą zabudowę**.
 - **Technologia:** Wykorzystuje dwa modele terenu (DSM i DTM) do "oczyszczenia" badanej działki pod nową inwestycję, zachowując jednocześnie cienie rzucane przez otoczenie. Precyzja dostępna dla każdego zakątka Polski.
 
 ![Analiza Nasłonecznienia - Warszawa TR](media/lidar-solar-analysis-demo-warsaw.png)
 <br>
-<sub>*Przykładowa analiza: Działka Teatru Rozmaitości w Warszawie z widokiem na Pałac Kultury i Nauki. Symulacja równonocy wiosennej (cały dzień) z dokładnością próbkowania 15 min.*</sub>
+<sub>*Przykładowa analiza: Działka Teatru Rozmaitości w Warszawie z widokiem na Pałac Kultury i Nauki. Symulacja równonocy wiosennej (cały dzień) z dokładnością próbkowania 1 godzina.*</sub>
 
 ### 3. Wizualizacja 3D otoczenia
-- **Funkcja:** Generowanie modelu 3D zabudowy w promieniu 300m na podstawie danych OpenStreetMap.
-- **Zastosowanie:** Głębokie zrozumienie kontekstu urbanistycznego. Analiza relacji przestrzennych, skali otoczenia i potencjalnego wpływu nowej zabudowy na istniejącą tkankę. Teraz umożliwia jednoczesne wizualizację wielu działek.
+- **Funkcja:** Generowanie interaktywnego modelu 3D otoczenia z wyborem źródła danych: **OpenStreetMap** (bryły budynków) lub **LiDAR** (precyzyjny model terenu i obiektów z Geoportalu).
+- **Nowe możliwości:** Wybór promienia analizy (250m, 500m, 1000m) oraz swobodna kamera z możliwością widoku z perspektywy przechodnia (zwiększony zakres `pitch` do 85°), pozwalająca na ocenę panoramy miasta.
+- **Zastosowanie:** Głębokie zrozumienie kontekstu urbanistycznego, weryfikacja osi widokowych i skali otoczenia na rzeczywistym modelu terenu (DTM + DSM), wykraczające poza uproszczone bryły 3D.
+
+![Wizualizacja 3D LiDAR - Szczecin](media/lidar-preview-demo-stettin.png)
+<br>
+<sub>*Przykładowa wizualizacja: Widok Szczecina w promieniu 1000m od Filharmonii. Model wygenerowany z surowych danych LiDAR (Geoportal) przedstawiający rzeczywistą rzeźbę terenu i zabudowę.*</sub>
 
 ### 4. Analiza MPZP z AI
 - **Funkcja:** Autonomiczny agent AI (Gemini 2.5 Pro) nawigujący po geoportalu, wykorzystujący OCR (Tesseract) do analizy zeskanowanych PDF, z bezpiecznym wyodrębnianiem ID projektu z poświadczeń.

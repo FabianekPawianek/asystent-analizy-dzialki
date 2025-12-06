@@ -75,7 +75,7 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
     log_mem("Start calculate_shadows")
 
     if scene.is_empty:
-        return np.full(len(grid_points), len(sun_positions) * time_step_weight)
+        return np.full(len(grid_points), len(sun_positions) * time_step_weight, dtype=np.float32)
 
     if isinstance(scene, trimesh.Scene):
         combined_mesh = scene.dump(concatenate=True)
@@ -85,7 +85,7 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
         raise ValueError(f"Nieobsługiwany typ geometrii: {type(scene)}")
 
     if not isinstance(combined_mesh, trimesh.Trimesh):
-        return np.full(len(grid_points), len(sun_positions) * time_step_weight)
+        return np.full(len(grid_points), len(sun_positions) * time_step_weight, dtype=np.float32)
 
     print(f"DEBUG_STATS: Mesh Faces: {len(combined_mesh.faces)}", flush=True)
     print(f"DEBUG_STATS: Grid Points: {len(grid_points)}", flush=True)
