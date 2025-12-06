@@ -1,3 +1,6 @@
+[server]
+maxMessageSize = 1000
+
 [theme]
 base="light"
 primaryColor="#28a745"

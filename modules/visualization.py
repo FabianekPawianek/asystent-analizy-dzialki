@@ -77,13 +77,19 @@ def get_buildings_layer(map_center_wgs_84):
     except Exception:
         return None, []
 
-def create_lidar_point_cloud_layer(dsm_data, transform, subsample=2):
-    import pandas as pd
-    import numpy as np
-    import pydeck as pdk
-    import rasterio
-    from pyproj import Transformer
-
+def create_lidar_point_cloud_layer(dsm_data, transform, subsample=2, parcel_polygons_2180=None):
+    """
+    Tworzy warstwę chmury punktów LiDAR.
+    
+    Args:
+        dsm_data: Dane DSM
+        transform: Transformacja rastrowa
+        subsample: Współczynnik podpróbkowania
+        parcel_polygons_2180: Lista poligonów działek w EPSG:2180 (shapely Polygon).
+                              Punkty wewnątrz będą kolorowane na biało.
+    """
+    from matplotlib.path import Path
+    
     MAX_POINTS = 150000
     total_pixels = dsm_data.size
     step = int(np.ceil(np.sqrt(total_pixels / MAX_POINTS)))
@@ -103,6 +109,22 @@ def create_lidar_point_cloud_layer(dsm_data, transform, subsample=2):
     xs = np.array(xs)[valid_mask]
     ys = np.array(ys)[valid_mask]
     z_vals = z_vals[valid_mask]
+    
+    n_points = len(xs)
+    colors = np.tile([[154, 202, 165, 50]], (n_points, 1))
+    
+    if parcel_polygons_2180:
+        points_2180 = np.column_stack((xs, ys))
+        inside_any = np.zeros(n_points, dtype=bool)
+        
+        for poly in parcel_polygons_2180:
+            if poly is not None and poly.is_valid:
+                poly_coords = np.array(poly.exterior.coords)
+                path = Path(poly_coords)
+                inside_mask = path.contains_points(points_2180)
+                inside_any |= inside_mask
+        
+        colors[inside_any] = [255, 255, 255, 180]
 
     transformer = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
     lons, lats = transformer.transform(xs, ys)
@@ -111,7 +133,7 @@ def create_lidar_point_cloud_layer(dsm_data, transform, subsample=2):
     
     df = pd.DataFrame({
         'position': data_stack.tolist(),
-        'color': [[154, 202, 165, 50]] * len(data_stack)
+        'color': colors.tolist()
     })
 
     return pdk.Layer(
@@ -121,7 +143,6 @@ def create_lidar_point_cloud_layer(dsm_data, transform, subsample=2):
         get_color="color",
         get_normal=[0, 0, 15],
         point_size=3,
-        # size_units
         pickable=False,
     )
 

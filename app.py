@@ -964,6 +964,10 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.session_state.selected_parcels.append(parcel_data)
                         st.success(f"Działka {parcel_data['ID Działki']} zaznaczona")
                     
+                    # Czyść cache LiDAR 3D przy zmianie działek
+                    for key in ['lidar_3d_deck', 'lidar_3d_bbox', 'lidar_3d_parcels_key']:
+                        st.session_state.pop(key, None)
+                    
                     coords_2180 = parcel_data["Współrzędne EPSG:2180"]
                     if coords_2180 and len(coords_2180) > 0:
                         avg_x = sum(p[0] for p in coords_2180) / len(coords_2180)
@@ -987,6 +991,15 @@ if st.session_state.show_search or st.session_state.map_center:
     st.markdown("<div style='margin-top: 2rem;'></div>", unsafe_allow_html=True)
     
     if st.session_state.selected_parcels:
+        view_3d_source = st.radio(
+            "Wybierz źródło modelu 3D:",
+            options=["OSM (Budynki)", "LiDAR (Geoportal)"],
+            index=0,
+            horizontal=True,
+            key="view_3d_source_radio",
+            help="OSM pokazuje budynki z OpenStreetMap. LiDAR pokazuje dokładny model terenu z chmurą punktów."
+        )
+        
         show_3d_context = st.button(
             "Wygeneruj widok 3D otoczenia",
             key="generate_3d_button",
@@ -996,9 +1009,12 @@ if st.session_state.show_search or st.session_state.map_center:
 
         if 'show_3d' not in st.session_state:
             st.session_state.show_3d = False
+        if 'view_3d_source' not in st.session_state:
+            st.session_state.view_3d_source = "OSM (Budynki)"
 
         if show_3d_context:
-            st.session_state.show_3d = not st.session_state.show_3d
+            st.session_state.show_3d = True
+            st.session_state.view_3d_source = view_3d_source
 
         if st.session_state.show_3d:
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 3rem 0 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
@@ -1017,40 +1033,130 @@ if st.session_state.show_search or st.session_state.map_center:
             map_center = (map_center_lat, map_center_lon)
 
             selected_map_style = "light"
-            with st.spinner("Generuję model 3D otoczenia..."):
-                all_parcel_coords_list = []
-                for parcel in st.session_state.selected_parcels:
-                    coords_wgs84_single = geospatial.transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
-                    if len(coords_wgs84_single) > 0:
-                        first_point = coords_wgs84_single[0]
-                        last_point = coords_wgs84_single[-1]
-                        if first_point != last_point:
-                            coords_closed = coords_wgs84_single + [first_point]
-                        else:
-                            coords_closed = coords_wgs84_single
-                        single_parcel_coords = [(p[1], p[0]) for p in coords_closed]
-                        all_parcel_coords_list.append(single_parcel_coords)
+            
+            use_lidar_3d = st.session_state.view_3d_source == "LiDAR (Geoportal)"
+            
+            if use_lidar_3d:
+                minx = min(p[0] for p in all_coords)
+                maxx = max(p[0] for p in all_coords)
+                miny = min(p[1] for p in all_coords)
+                maxy = max(p[1] for p in all_coords)
+                buffer = 150
+                current_lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
                 
-                if all_parcel_coords_list:
-                    deck_3d_view = generate_3d_context_view_multiple_parcels(
-                        all_parcel_coords_list, map_center, map_style=selected_map_style
-                    )
-                else:
-                    deck_3d_view = generate_3d_context_view(
-                        [], map_center, map_style=selected_map_style
-                    )
-                if deck_3d_view:
+                parcel_ids_key = tuple(sorted([p['ID Działki'] for p in st.session_state.selected_parcels]))
+                cache_key = (current_lidar_bbox, parcel_ids_key)
+                
+                cached_bbox = st.session_state.get('lidar_3d_bbox')
+                cached_parcels = st.session_state.get('lidar_3d_parcels_key')
+                
+                needs_refresh = (cached_bbox != current_lidar_bbox or cached_parcels != parcel_ids_key 
+                                 or 'lidar_3d_deck' not in st.session_state)
+                
+                if needs_refresh:
+                    with st.spinner("Pobieram dane LiDAR z Geoportalu i generuję model 3D..."):
+                        try:
+                            dsm_data, transform_dsm, dtm_data, dtm_transform = get_cached_lidar_data(current_lidar_bbox)
+                            
+                            min_elevation = np.nanmin(dtm_data)
+                            dsm_viz = dsm_data - min_elevation
+                            dtm_viz = dtm_data - min_elevation
+                            
+                            parcel_polygons_2180 = []
+                            for parcel in st.session_state.selected_parcels:
+                                coords_2180 = parcel["Współrzędne EPSG:2180"]
+                                if len(coords_2180) >= 3:
+                                    poly = Polygon(coords_2180)
+                                    if poly.is_valid:
+                                        parcel_polygons_2180.append(poly)
+                                    else:
+                                        parcel_polygons_2180.append(poly.buffer(0))
+                            
+                            lidar_layers = []
+                            lines_layer = visualization.create_lidar_lines_layer(dsm_viz, dtm_viz, transform_dsm, subsample=3)
+                            if lines_layer:
+                                lidar_layers.append(lines_layer)
+                            
+                            point_cloud_layer = visualization.create_lidar_point_cloud_layer(
+                                dsm_viz, transform_dsm, subsample=2,
+                                parcel_polygons_2180=parcel_polygons_2180
+                            )
+                            if point_cloud_layer:
+                                lidar_layers.append(point_cloud_layer)
+                            
+                            view_state = pdk.ViewState(
+                                latitude=map_center[0],
+                                longitude=map_center[1],
+                                zoom=17.5,
+                                pitch=50,
+                                bearing=0
+                            )
+                            
+                            deck_3d_view = pdk.Deck(
+                                layers=lidar_layers,
+                                initial_view_state=view_state,
+                                map_style=selected_map_style
+                            )
+                            
+                            st.session_state['lidar_3d_deck'] = deck_3d_view
+                            st.session_state['lidar_3d_bbox'] = current_lidar_bbox
+                            st.session_state['lidar_3d_parcels_key'] = parcel_ids_key
+                            
+                        except Exception as e:
+                            st.error(f"Błąd pobierania danych LiDAR: {e}")
+                            st.info("Przełączam na widok OSM...")
+                            use_lidar_3d = False
+                            st.session_state.pop('lidar_3d_deck', None)
+                
+                if use_lidar_3d and 'lidar_3d_deck' in st.session_state:
                     st.markdown("""
                     <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
                         <p style="margin: 0; color: #424242; font-size: 0.95rem;">
                             <strong>Sterowanie kamerą:</strong>
                             <strong>Obrót:</strong> Shift + przeciągnij |
                             <strong>Przesuwanie:</strong> Przeciągnij |
-                            <strong>Zoom:</strong> Kółko myszy
+                            <strong>Zoom:</strong> Kółko myszy |
+                            <em style="color: #666;">(Białe punkty = obszar działki)</em>
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
-                    st.pydeck_chart(deck_3d_view, use_container_width=True, height=750)
+                    st.pydeck_chart(st.session_state['lidar_3d_deck'], use_container_width=True, height=750)
+            
+            if not use_lidar_3d:
+                with st.spinner("Generuję model 3D otoczenia..."):
+                    all_parcel_coords_list = []
+                    for parcel in st.session_state.selected_parcels:
+                        coords_wgs84_single = geospatial.transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
+                        if len(coords_wgs84_single) > 0:
+                            first_point = coords_wgs84_single[0]
+                            last_point = coords_wgs84_single[-1]
+                            if first_point != last_point:
+                                coords_closed = coords_wgs84_single + [first_point]
+                            else:
+                                coords_closed = coords_wgs84_single
+                            single_parcel_coords = [(p[1], p[0]) for p in coords_closed]
+                            all_parcel_coords_list.append(single_parcel_coords)
+                    
+                    if all_parcel_coords_list:
+                        deck_3d_view = generate_3d_context_view_multiple_parcels(
+                            all_parcel_coords_list, map_center, map_style=selected_map_style
+                        )
+                    else:
+                        deck_3d_view = generate_3d_context_view(
+                            [], map_center, map_style=selected_map_style
+                        )
+                    if deck_3d_view:
+                        st.markdown("""
+                        <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                            <p style="margin: 0; color: #424242; font-size: 0.95rem;">
+                                <strong>Sterowanie kamerą:</strong>
+                                <strong>Obrót:</strong> Shift + przeciągnij |
+                                <strong>Przesuwanie:</strong> Przeciągnij |
+                                <strong>Zoom:</strong> Kółko myszy
+                            </p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        st.pydeck_chart(deck_3d_view, use_container_width=True, height=750)
 
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
 
