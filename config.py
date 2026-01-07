@@ -1,10 +1,8 @@
 import os
-import json
-import tempfile
 import platform
 
 LOCATION = "us-central1"
-MODEL_NAME = "gemini-2.5-pro"
+MODEL_NAME = "gemini-3-flash-preview"
 EMBEDDING_MODEL_NAME = "text-embedding-004"
 UNIVERSE_DOMAIN = "googleapis.com"
 
@@ -25,54 +23,41 @@ def setup_tesseract():
                     pass
     return False
 
-def setup_gcp_credentials(secrets=None):
-    credentials_configured = False
-    project_id = None
-    credentials_dict = None
+def get_google_api_key(secrets=None):
+    api_key = os.getenv('GOOGLE_API_KEY')
 
-    if os.getenv('GCP_CREDENTIALS'):
+    if not api_key and secrets:
         try:
-            credentials_json = os.getenv('GCP_CREDENTIALS')
-            credentials_dict = json.loads(credentials_json)
-            project_id = credentials_dict.get('project_id')
-        except Exception as e:
-            raise Exception(f"Failed to load GCP credentials from environment: {e}")
+            api_key = secrets.get('GOOGLE_API_KEY')
+        except Exception:
+            api_key = None
 
-    elif os.getenv('type') == 'service_account':
-        try:
-            credentials_dict = {
-                'type': os.getenv('type'),
-                'project_id': os.getenv('project_id'),
-                'private_key_id': os.getenv('private_key_id'),
-                'private_key': os.getenv('private_key'),
-                'client_email': os.getenv('client_email'),
-                'client_id': os.getenv('client_id'),
-                'auth_uri': os.getenv('auth_uri'),
-                'token_uri': os.getenv('token_uri'),
-                'auth_provider_x509_cert_url': os.getenv('auth_provider_x509_cert_url'),
-                'client_x509_cert_url': os.getenv('client_x509_cert_url'),
-                'universe_domain': os.getenv('universe_domain', UNIVERSE_DOMAIN)
-            }
-            project_id = os.getenv('project_id')
-        except Exception as e:
-            raise Exception(f"Failed to load credentials from individual environment variables: {e}")
+    if not api_key:
+        env_candidates = [
+            os.path.join(os.getcwd(), '.env'),
+            os.path.join(os.path.dirname(__file__), '.env'),
+        ]
+        for path in env_candidates:
+            try:
+                if os.path.exists(path):
+                    with open(path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith('#'):
+                                continue
+                            if line.startswith('GOOGLE_API_KEY'):
+                                value = line.split('=', 1)[1].strip()
+                                if value.startswith(('"', "'")) and value.endswith(('"', "'")):
+                                    value = value[1:-1]
+                                api_key = value
+                                os.environ['GOOGLE_API_KEY'] = api_key
+                                break
+            except Exception:
+                continue
+            if api_key:
+                break
 
-    elif secrets and 'gcp_service_account' in secrets:
-        try:
-            credentials_dict = dict(secrets['gcp_service_account'])
-            project_id = credentials_dict.get('project_id')
-        except Exception as e:
-            raise Exception(f"Failed to load Streamlit secrets: {e}")
+    if not api_key:
+        raise Exception("Brak GOOGLE_API_KEY. Dodaj do .env lub do Streamlit Secrets.")
 
-    if credentials_dict:
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                json.dump(credentials_dict, f)
-                credentials_path = f.name
-            
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-            return project_id
-        except Exception as e:
-             raise Exception(f"Failed to write credentials file: {e}")
-    
-    raise Exception("Google Cloud credentials not found.")
+    return api_key

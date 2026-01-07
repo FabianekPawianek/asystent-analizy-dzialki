@@ -43,12 +43,12 @@ Hostowane na Hugging Face Spaces.
 <sub>*Przykładowa wizualizacja: Widok Szczecina w promieniu 1000m od Filharmonii. Model wygenerowany z surowych danych LiDAR (Geoportal) przedstawiający rzeczywistą rzeźbę terenu i zabudowę.*</sub>
 
 ### 4. Analiza MPZP z AI
-- **Funkcja:** Autonomiczny agent AI (Gemini 2.5 Pro) nawigujący po geoportalu, wykorzystujący OCR (Tesseract) do analizy zeskanowanych PDF, z bezpiecznym wyodrębnianiem ID projektu z poświadczeń.
+- **Funkcja:** Autonomiczny agent AI (Gemini 3.0 Flash) nawigujący po geoportalu, wykorzystujący OCR (Tesseract) do analizy zeskanowanych PDF, z bezpiecznym wyodrębnianiem ID projektu z poświadczeń.
 - **Zastosowanie:** Automatyzacja i przyspieszenie żmudnego procesu analizy dokumentów planistycznych. Ekstrakcja kluczowych wskaźników i uwarunkowań w ułamku czasu wymaganego przy analizie manualnej, z lepszym bezpieczeństwem danych.
 
 ## Wymagania
 
-Aplikacja wymaga Google Cloud credentials dla Vertex AI (Gemini).
+Aplikacja wymaga Google AI Studio API key.
 
 Skonfiguruj secrets w ustawieniach Space:
 1. Przejdź do Settings → Repository secrets

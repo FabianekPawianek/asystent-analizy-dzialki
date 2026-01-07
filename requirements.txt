@@ -11,9 +11,7 @@ trimesh
 shapely
 pyproj
 selenium
-langchain-google-vertexai
-google-cloud-aiplatform
-vertexai
+google-generativeai
 open3d
 matplotlib
 geopandas

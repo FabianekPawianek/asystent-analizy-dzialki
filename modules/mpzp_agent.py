@@ -10,31 +10,41 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
-import vertexai
-from vertexai.generative_models import GenerativeModel, Part
-from langchain_google_vertexai import VertexAIEmbeddings, VertexAI
+import google.generativeai as genai
 import config
 
 generative_model = None
-llm = None
 
-def init_ai(project_id):
-    global generative_model, llm
-    vertexai.init(project=project_id, location=config.LOCATION)
-    generative_model = GenerativeModel(config.MODEL_NAME)
-    llm = VertexAI(model_name=config.MODEL_NAME)
+def init_ai(api_key):
+    global generative_model
+    try:
+        genai.configure(api_key=api_key)
+        generative_model = genai.GenerativeModel(config.MODEL_NAME)
+    except Exception as e:
+        raise Exception(f"Nie udało się zainicjalizować Google AI: {e}")
 
 def perform_ai_step(driver, goal_prompt, status_callback=None):
     if status_callback:
         status_callback("info", f" **Cel:** {goal_prompt}")
-        
-    screenshot_bytes = driver.get_screenshot_as_png()
-    prompt = f"Cel: '{goal_prompt}'. Odpowiedz w JSON, podając `element_text` do kliknięcia."
-    
+
     try:
-        response = generative_model.generate_content([Part.from_data(screenshot_bytes, mime_type="image/png"), prompt])
-        ai_response_text = response.text.strip().replace("```json", "").replace("```", "")
-        return json.loads(ai_response_text).get("element_text"), None
+        screenshot_bytes = driver.get_screenshot_as_png()
+    except Exception as e:
+        return None, f"Nie udało się pobrać zrzutu ekranu: {e}"
+
+    prompt = f"Cel: '{goal_prompt}'. Zwróć JSON z kluczem `element_text` do kliknięcia."
+
+    try:
+        response = generative_model.generate_content([
+            {"mime_type": "image/png", "data": screenshot_bytes},
+            prompt
+        ])
+        ai_response_text = (response.text or "").strip().replace("```json", "").replace("```", "")
+        try:
+            element_text = json.loads(ai_response_text).get("element_text")
+        except Exception:
+            element_text = None
+        return element_text, None
     except Exception as e:
         return None, f"Błąd przetwarzania AI: {e}"
 
@@ -137,14 +147,20 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
 
     if "Ustalenia ogólne" in docs_content and docs_content["Ustalenia ogólne"]:
         prompt = f"Na podstawie tego dokumentu, jaki jest ogólny cel i charakter obszaru objętego tym planem?\n\nDokument:\n---\n{docs_content['Ustalenia ogólne']}"
-        results['ogolne']['Cel Planu'] = llm.invoke(prompt)
+        try:
+            results['ogolne']['Cel Planu'] = (generative_model.generate_content(prompt).text or "").strip()
+        except Exception as e:
+            results['ogolne']['Cel Planu'] = f"Błąd AI: {e}"
 
     if "Ustalenia szczegółowe" in docs_content:
         doc_szczegolowe = docs_content["Ustalenia szczegółowe"]
 
         if doc_szczegolowe and len(doc_szczegolowe) > 50:
             id_prompt = f"Na podstawie poniższego tekstu z dokumentu 'Ustalenia szczegółowe', jaki jest symbol/oznaczenie terenu elementarnego? (np. 'S.N.9006.MC'). Odpowiedz tylko samym symbolem terenu.\n\nTekst dokumentu:\n---\n{doc_szczegolowe[:5000]}"
-            results['szczegolowe']['Oznaczenie Terenu'] = llm.invoke(id_prompt)
+            try:
+                results['szczegolowe']['Oznaczenie Terenu'] = (generative_model.generate_content(id_prompt).text or "").strip()
+            except Exception as e:
+                results['szczegolowe']['Oznaczenie Terenu'] = f"Błąd AI: {e}"
 
             detail_questions = {
                 "Przeznaczenie terenu": "Jakie jest szczegółowe przeznaczenie terenu (podstawowe i dopuszczalne) oraz jakie są zakazy?",
@@ -155,7 +171,10 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
 
             for key, question in detail_questions.items():
                 prompt = f"Na podstawie TYLKO i WYŁĄCZNIE poniższego dokumentu 'Ustalenia szczegółowe', odpowiedz na pytanie: {question}\n\nDokument:\n---\n{doc_szczegolowe}"
-                results['szczegolowe'][key] = llm.invoke(prompt)
+                try:
+                    results['szczegolowe'][key] = (generative_model.generate_content(prompt).text or "").strip()
+                except Exception as e:
+                    results['szczegolowe'][key] = f"Błąd AI: {e}"
 
     return results
 

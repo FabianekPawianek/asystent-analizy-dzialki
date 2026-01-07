@@ -30,11 +30,11 @@ import modules.mpzp_agent as mpzp_agent
 config.setup_tesseract()
 
 try:
-    PROJECT_ID = config.setup_gcp_credentials(st.secrets)
-    mpzp_agent.init_ai(PROJECT_ID)
+    API_KEY = config.get_google_api_key(st.secrets)
+    mpzp_agent.init_ai(API_KEY)
 except Exception as e:
     st.error(str(e))
-    st.info("See Settings → Variables and secrets → Add a new secret")
+    st.info("Dodaj GOOGLE_API_KEY do pliku .env lub do Streamlit Secrets.")
     st.stop()
 
 
@@ -1235,7 +1235,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 st.markdown("""
                 <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(33,150,243,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
                     <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza MPZP</h3>
-                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Gemini 2.5 Pro)</p>
+                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Gemini 3.0 Flash)</p>
                 </div>
                 """, unsafe_allow_html=True)
 
