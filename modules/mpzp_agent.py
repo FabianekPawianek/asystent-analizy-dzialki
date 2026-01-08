@@ -50,7 +50,7 @@ def perform_ai_step(driver, goal_prompt, status_callback=None):
 
 def extract_links_by_clicking(driver, wait, status_callback=None):
     if status_callback:
-        status_callback("info", " **Cel:** Błyskawiczna ekstrakcja linków.")
+        status_callback("info", " **Cel:** Ekstrakcja linków.")
         
     extracted_links = {}
     links_to_find = ["Ustalenia ogólne", "Ustalenia morfoplastyczne", "Ustalenia szczegółowe", "Ustalenia końcowe"]
@@ -156,24 +156,66 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
         doc_szczegolowe = docs_content["Ustalenia szczegółowe"]
 
         if doc_szczegolowe and len(doc_szczegolowe) > 50:
-            id_prompt = f"Na podstawie poniższego tekstu z dokumentu 'Ustalenia szczegółowe', jaki jest symbol/oznaczenie terenu elementarnego? (np. 'S.N.9006.MC'). Odpowiedz tylko samym symbolem terenu.\n\nTekst dokumentu:\n---\n{doc_szczegolowe[:5000]}"
+            prompt = f"""
+Przeanalizuj tekst "Ustalenia szczegółowe".
+Wyekstrahowane dane sformatuj wizualnie używając Markdown, aby były czytelne dla człowieka.
+
+Instrukcje formatowania dla poszczególnych pól:
+1. **Oznaczenie Terenu**: Samo oznaczenie (np. **20.MN**).
+2. **Przeznaczenie**: Użyj listy punktowanej (myślniki). Oddziel przeznaczenie podstawowe od dopuszczalnego. Kluczowe funkcje **pogrub**.
+   Przykład:
+   "- **Podstawowe**: Zabudowa mieszkaniowa
+- **Dopuszczalne**: Usługi nieuciążliwe"
+3. **Wysokość**: Jeśli jest zakres, użyj formatu "od **X** do **Y** m". Jeśli kondygnacje, napisz np. "max **2** kondygnacje".
+4. **Wskaźniki**: Każdy wskaźnik w nowej linii. Pogrub wartości liczbowe.
+   Przykład:
+   "- Max pow. zabudowy: **30%**
+- Min pow. biologicznie czynna: **50%**"
+5. **Dach**: Wypunktuj główne cechy (kąt, układ, pokrycie).
+
+Zwróć wynik WYŁĄCZNIE jako JSON:
+{{
+  "Oznaczenie Terenu": "...",
+  "Przeznaczenie terenu": "...",
+  "Wysokość zabudowy": "...",
+  "Wskaźniki zabudowy": "...",
+  "Geometria dachu": "..."
+}}
+
+Tekst dokumentu:
+---
+{doc_szczegolowe[:25000]} 
+"""
             try:
-                results['szczegolowe']['Oznaczenie Terenu'] = (generative_model.generate_content(id_prompt).text or "").strip()
-            except Exception as e:
-                results['szczegolowe']['Oznaczenie Terenu'] = f"Błąd AI: {e}"
-
-            detail_questions = {
-                "Przeznaczenie terenu": "Jakie jest szczegółowe przeznaczenie terenu (podstawowe i dopuszczalne) oraz jakie są zakazy?",
-                "Wysokość zabudowy": "Jakie są szczegółowe ustalenia dotyczące wysokości zabudowy w metrach?",
-                "Wskaźniki zabudowy": "Jakie są szczegółowe wskaźniki, takie jak maksymalna powierzchnia zabudowy i minimalna powierzchnia biologicznie czynna?",
-                "Geometria dachu": "Jakie są szczegółowe wymagania dotyczące geometrii dachu i jego pokrycia?",
-            }
-
-            for key, question in detail_questions.items():
-                prompt = f"Na podstawie TYLKO i WYŁĄCZNIE poniższego dokumentu 'Ustalenia szczegółowe', odpowiedz na pytanie: {question}\n\nDokument:\n---\n{doc_szczegolowe}"
+                ai_text = (generative_model.generate_content(prompt).text or "").strip()
+                cleaned = ai_text.replace("```json", "").replace("```", "").strip()
+                parsed = None
                 try:
-                    results['szczegolowe'][key] = (generative_model.generate_content(prompt).text or "").strip()
-                except Exception as e:
+                    parsed = json.loads(cleaned)
+                except Exception:
+                    start = cleaned.find("{")
+                    end = cleaned.rfind("}")
+                    if start != -1 and end != -1 and end > start:
+                        possible_json = cleaned[start:end+1]
+                        try:
+                            parsed = json.loads(possible_json)
+                        except Exception:
+                            parsed = None
+                default_val = "Brak konkretnych ustaleń w tym fragmencie"
+                fields = [
+                    "Oznaczenie Terenu",
+                    "Przeznaczenie terenu",
+                    "Wysokość zabudowy",
+                    "Wskaźniki zabudowy",
+                    "Geometria dachu",
+                ]
+                for key in fields:
+                    if parsed and isinstance(parsed, dict) and key in parsed and parsed[key]:
+                        results['szczegolowe'][key] = str(parsed[key]).strip()
+                    else:
+                        results['szczegolowe'][key] = default_val
+            except Exception as e:
+                for key in ["Oznaczenie Terenu","Przeznaczenie terenu","Wysokość zabudowy","Wskaźniki zabudowy","Geometria dachu"]:
                     results['szczegolowe'][key] = f"Błąd AI: {e}"
 
     return results
