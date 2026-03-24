@@ -11,6 +11,7 @@ import requests
 import http.client
 from pyproj import Transformer
 from shapely.ops import transform as shapely_transform
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,11 @@ class LidarService:
         
         return data
 
-    def get_dsm_data(self, bbox, crs="EPSG:2180", width=None, height=None, res_x=None, res_y=None, coverage_id=None):
+    def apply_circular_mask(self, data: np.ndarray) -> np.ndarray:
+        return self._apply_circular_mask(data.copy())
+
+
+    def get_dsm_data(self, bbox, crs="EPSG:2180", width=None, height=None, res_x=None, res_y=None, coverage_id=None, apply_circular_mask: bool = True):
         try:
             if coverage_id is None:
                 coverage_id = self.DEFAULT_COVERAGE
@@ -130,7 +135,8 @@ class LidarService:
                 if nodata is not None:
                     data = np.where(data == nodata, np.nan, data)
 
-                data = self._apply_circular_mask(data)
+                if apply_circular_mask:
+                    data = self._apply_circular_mask(data)
                 return data, transform
 
             finally:
@@ -141,7 +147,7 @@ class LidarService:
             logger.error(f"Critical error in get_dsm_data: {e}")
             raise
 
-    def get_dtm_data(self, bbox, crs="EPSG:2180", width=None, height=None, res_x=None, res_y=None, coverage_id=None):
+    def get_dtm_data(self, bbox, crs="EPSG:2180", width=None, height=None, res_x=None, res_y=None, coverage_id=None, apply_circular_mask: bool = True):
         try:
             if coverage_id is None:
                 coverage_id = self.DEFAULT_DTM_COVERAGE
@@ -203,7 +209,8 @@ class LidarService:
                 if nodata is not None:
                     data = np.where(data == nodata, np.nan, data)
 
-                data = self._apply_circular_mask(data)
+                if apply_circular_mask:
+                    data = self._apply_circular_mask(data)
                 return data, transform
 
             finally:
@@ -262,7 +269,7 @@ class LidarService:
                 if 0 <= r < rows and 0 <= c < cols:
                     val = raster_data[r, c]
                     if np.isnan(val):
-                        z_values.append(np.nanmin(raster_data)) # Fallback
+                        z_values.append(np.nanmin(raster_data))
                     else:
                         z_values.append(val)
                 else:
@@ -368,3 +375,37 @@ class LidarService:
             print(f"ERROR masking: {e}")
 
         return dsm_modified
+
+    def _to_trimesh(self, geometry) -> trimesh.Trimesh:
+        if isinstance(geometry, trimesh.Scene):
+            return geometry.dump(concatenate=True)
+        if isinstance(geometry, trimesh.Trimesh):
+            return geometry
+        raise TypeError(f"Unsupported geometry type for export: {type(geometry)}")
+
+    def export_trimesh_to_obj(self, geometry) -> bytes:
+        mesh = self._to_trimesh(geometry)
+        buf = io.BytesIO()
+        mesh.export(file_obj=buf, file_type='obj')
+        return buf.getvalue()
+
+    def export_trimesh_to_xyz(self, geometry, precision: int = 3) -> bytes:
+        mesh = self._to_trimesh(geometry)
+        v = mesh.vertices
+        fmt = f"{{:.{precision}f}} {{:.{precision}f}} {{:.{precision}f}}"
+        lines = (fmt.format(x, y, z) for x, y, z in v)
+        text = "\n".join(lines) + "\n"
+        return text.encode('utf-8')
+
+
+    def export_dsm_to_xyz_raw(self, data: np.ndarray, transform, precision: int = 3) -> bytes:
+        rows, cols = data.shape
+        c, r = np.meshgrid(np.arange(cols), np.arange(rows))
+        xs = transform.c + c * transform.a + r * transform.b
+        ys = transform.f + c * transform.d + r * transform.e
+        zs = data
+        fmt = f"{{:.{precision}f}} {{:.{precision}f}} {{:.{precision}f}}"
+        lines = (fmt.format(x, y, z) for x, y, z in zip(xs.ravel(), ys.ravel(), zs.ravel()))
+        text = "\n".join(lines) + "\n"
+        return text.encode('utf-8')
+

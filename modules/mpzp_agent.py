@@ -12,6 +12,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 import google.generativeai as genai
 import config
+import streamlit as st
+from urllib.parse import urlparse
 
 generative_model = None
 
@@ -218,7 +220,34 @@ Tekst dokumentu:
                 for key in ["Oznaczenie Terenu","Przeznaczenie terenu","Wysokość zabudowy","Wskaźniki zabudowy","Geometria dachu"]:
                     results['szczegolowe'][key] = f"Błąd AI: {e}"
 
+
     return results
+
+
+@st.cache_data(show_spinner=False)
+def fetch_raw_docs_cached(links_items: tuple):
+    """Fetch and cache raw MPZP source files.
+    links_items: tuple of (label, url) pairs (sorted for determinism)
+    Returns dict[label] = { 'url': url, 'content': bytes, 'mime': str, 'filename': str }
+    """
+    out = {}
+    for label, url in links_items:
+        try:
+            resp = requests.get(url, timeout=60)
+            resp.raise_for_status()
+            ctype = resp.headers.get('Content-Type', 'application/octet-stream')
+            path = urlparse(url).path.rsplit('/', 1)[-1] or None
+            if not path:
+                path = label.replace(' ', '_') + '.pdf'
+            out[label] = {
+                'url': url,
+                'content': resp.content,
+                'mime': ctype.split(';')[0],
+                'filename': path
+            }
+        except Exception:
+            continue
+    return out
 
 def run_ai_agent_flow(parcel_id, status_callback=None):
     options = webdriver.ChromeOptions()

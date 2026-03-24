@@ -19,7 +19,7 @@ from pyproj import Transformer
 from urllib.parse import quote_plus
 import platform
 
-st.cache_data.clear()
+# st.cache_data.clear()
 import os
 import config
 import modules.geospatial as geospatial
@@ -308,8 +308,8 @@ from modules.lidar_service import LidarService
 @st.cache_data(show_spinner=False)
 def get_cached_lidar_data(bbox):
     lidar_service = LidarService()
-    dsm_data, transform = lidar_service.get_dsm_data(bbox)
-    dtm_data, dtm_transform = lidar_service.get_dtm_data(bbox)
+    dsm_data, transform = lidar_service.get_dsm_data(bbox, apply_circular_mask=False)
+    dtm_data, dtm_transform = lidar_service.get_dtm_data(bbox, apply_circular_mask=False)
     return dsm_data, transform, dtm_data, dtm_transform
 
 @st.cache_data(show_spinner=False)
@@ -353,6 +353,42 @@ def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_
     grid_points_metric[:, 2] = z_values + 0.5
     
     return scene, grid_points_metric, lidar_layers
+
+@st.cache_resource(show_spinner=False)
+def get_cached_lidar_mesh(bbox, downsample: int = 4):
+    lidar_service = LidarService()
+    dsm_data, transform, dtm_data, _ = get_cached_lidar_data(bbox)
+    min_elevation = np.nanmin(dtm_data)
+    dsm_for_calc = dsm_data - min_elevation
+    return lidar_service.convert_dsm_to_trimesh(dsm_for_calc, transform, downsample_factor=downsample)
+
+@st.cache_data(show_spinner=False)
+def get_lidar_obj_bytes(bbox, downsample: int = 4):
+    mesh = get_cached_lidar_mesh(bbox, downsample)
+    return LidarService().export_trimesh_to_obj(mesh)
+
+@st.cache_data(show_spinner=False)
+def get_lidar_xyz_bytes(bbox, downsample: int = 4):
+    mesh = get_cached_lidar_mesh(bbox, downsample)
+    return LidarService().export_trimesh_to_xyz(mesh)
+
+@st.cache_resource(show_spinner=False)
+def get_cached_lidar_raw_mesh(bbox):
+    lidar_service = LidarService()
+    dsm_data, transform, _, _ = get_cached_lidar_data(bbox)
+    return lidar_service.convert_dsm_to_trimesh(dsm_data, transform, downsample_factor=1)
+
+@st.cache_data(show_spinner=False)
+def get_lidar_raw_obj_bytes(bbox):
+    mesh = get_cached_lidar_raw_mesh(bbox)
+    return LidarService().export_trimesh_to_obj(mesh)
+
+@st.cache_data(show_spinner=False)
+def get_lidar_raw_xyz_bytes(bbox):
+    dsm_data, transform, _, _ = get_cached_lidar_data(bbox)
+    return LidarService().export_dsm_to_xyz_raw(dsm_data, transform)
+
+
 
 # @st.cache_data
 def run_solar_simulation(
@@ -608,7 +644,7 @@ st.markdown("""
     }
 
     /* Buttons with hover effects */
-    .stButton button {
+    .stButton button, .stDownloadButton button {
         background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
         color: white !important;
         border: none !important;
@@ -620,7 +656,7 @@ st.markdown("""
         box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3) !important;
     }
 
-    .stButton button:hover {
+    .stButton button:hover, .stDownloadButton button:hover {
         transform: translateY(-2px) !important;
         box-shadow: 0 6px 25px rgba(40, 167, 69, 0.5) !important;
     }
@@ -1062,6 +1098,8 @@ if st.session_state.show_search or st.session_state.map_center:
             all_coords_wgs84 = []
             for parcel in st.session_state.selected_parcels:
                 coords_2180 = parcel["Współrzędne EPSG:2180"]
+
+
                 coords_wgs84_single = geospatial.transform_coordinates_to_wgs84(coords_2180)
                 all_coords.extend(coords_2180)
                 all_coords_wgs84.extend(coords_wgs84_single)
@@ -1101,6 +1139,11 @@ if st.session_state.show_search or st.session_state.map_center:
                             dsm_viz = dsm_data - min_elevation
                             dtm_viz = dtm_data - min_elevation
                             
+
+                            _svc_tmp = LidarService()
+                            dsm_viz = _svc_tmp.apply_circular_mask(dsm_viz)
+                            dtm_viz = _svc_tmp.apply_circular_mask(dtm_viz)
+
                             parcel_polygons_2180 = []
                             for parcel in st.session_state.selected_parcels:
                                 coords_2180 = parcel["Współrzędne EPSG:2180"]
@@ -1143,6 +1186,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             
                             st.session_state['lidar_3d_deck'] = deck_3d_view
                             st.session_state['lidar_3d_bbox'] = current_lidar_bbox
+
                             st.session_state['lidar_3d_parcels_key'] = parcel_ids_key
                             
                         except Exception as e:
@@ -1162,7 +1206,30 @@ if st.session_state.show_search or st.session_state.map_center:
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
+
                     st.pydeck_chart(st.session_state['lidar_3d_deck'], use_container_width=True, height=750)
+
+                    col_1, col_2 = st.columns(2, gap="large")
+
+                    with col_1:
+                        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                        with col_btn2:
+                            st.download_button(
+                                label="Pobierz model 3D `.obj`",
+                                data=get_lidar_raw_obj_bytes(current_lidar_bbox),
+                                file_name="model_3D.obj",
+                                use_container_width=True
+                            )
+                    with col_2:
+                        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                        with col_btn2:
+                            st.download_button(
+                                label="Pobierz chmurę punktów `.xyz`",
+                                data=get_lidar_raw_xyz_bytes(current_lidar_bbox),
+                                file_name="chmura_punktow.xyz",
+                                use_container_width=True
+                            )
+
             
             if not use_lidar_3d:
                 with st.spinner("Generuję model 3D otoczenia..."):
@@ -1591,8 +1658,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         })
                     
                     scale_factor = data.get('diagram_scale_factor', 1.0)
-                    sun_marker_radius = 12 * scale_factor  # Bazowy promień 12m
-                    
+                    sun_marker_radius = 12 * scale_factor
                     sun_markers_layer = pdk.Layer("ScatterplotLayer", data=sun_positions_wgs84,
                                                  get_position="position",
                                                  get_radius=sun_marker_radius, filled=True,
@@ -1667,6 +1733,8 @@ if st.session_state.show_search or st.session_state.map_center:
                         
                         if results:
                             st.session_state.analysis_results = results
+
+
                             st.success("Analiza zakończona!")
                         else:
                             st.error("Nie udało się pobrać wyników analizy.")
@@ -1689,3 +1757,16 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.subheader(f"Teren: {results['analysis']['szczegolowe'].get('Oznaczenie Terenu', 'N/A')}")
                         for key, value in results['analysis']['szczegolowe'].items():
                             if key != 'Oznaczenie Terenu': st.markdown(f"**{key}:**"); st.info(f"{value}")
+                if 'links' in results and results['links']:
+                    docs = mpzp_agent.fetch_raw_docs_cached(tuple(sorted(results['links'].items())))
+                    if docs:
+                        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                        with col_btn2:
+                            for label, meta in docs.items():
+                                st.download_button(
+                                    label=f"Pobierz: {label}",
+                                    data=meta['content'],
+                                    file_name=meta.get('filename') or (label.replace(' ', '_') + '.pdf'),
+                                    use_container_width=True
+                                )
+
