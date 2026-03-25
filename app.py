@@ -1208,6 +1208,17 @@ if st.session_state.show_search or st.session_state.map_center:
                     """, unsafe_allow_html=True)
 
                     st.pydeck_chart(st.session_state['lidar_3d_deck'], use_container_width=True, height=750)
+                    import re
+                    current_date = datetime.now().strftime("%Y%m%d")
+                    if address_input:
+                        clean_addr = address_input.replace(" ", "_").replace(",", "")
+                        clean_addr = re.sub(r'[^a-zA-Z0-9_]', '', clean_addr)
+                        clean_addr = clean_addr[:50]
+                    else:
+                        clean_addr = "Analiza_Dzialki"
+
+                    obj_filename = f"Model_3D_{clean_addr}_{current_date}.obj"
+                    xyz_filename = f"Punkty_XYZ_{clean_addr}_{current_date}.xyz"
 
                     col_1, col_2 = st.columns(2, gap="large")
 
@@ -1217,7 +1228,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             st.download_button(
                                 label="Pobierz model 3D `.obj`",
                                 data=get_lidar_raw_obj_bytes(current_lidar_bbox),
-                                file_name="model_3D.obj",
+                                file_name=obj_filename,
                                 use_container_width=True
                             )
                     with col_2:
@@ -1226,7 +1237,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             st.download_button(
                                 label="Pobierz chmurę punktów `.xyz`",
                                 data=get_lidar_raw_xyz_bytes(current_lidar_bbox),
-                                file_name="chmura_punktow.xyz",
+                                file_name=xyz_filename,
                                 use_container_width=True
                             )
 
