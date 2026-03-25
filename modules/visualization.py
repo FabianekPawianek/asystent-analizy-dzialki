@@ -224,7 +224,7 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
     
     dsm_sub = dsm_data[::final_step, ::final_step]
     dtm_sub = dtm_data[::final_step, ::final_step]
-    
+
     height_diff = dsm_sub - dtm_sub
     mask = (height_diff > 2.0) & (~np.isnan(dsm_sub)) & (~np.isnan(dtm_sub))
     
@@ -248,12 +248,12 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
     
     n = len(lons)
     positions = np.column_stack((lons, lats, z_dtm))
-    
+
     if custom_colors is not None and len(custom_colors) == n:
         colors = [list(c) for c in custom_colors]
     else:
-        colors = [[154, 202, 165, 50]] * n
-    
+        colors = [[160, 210, 170]] * n
+
     pillar_data = pd.DataFrame({
         'position': positions.tolist(),
         'height': heights.tolist(),
@@ -269,12 +269,13 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
         disk_resolution=4,
         angle=45,
         extruded=True,
+        flat_shading=True,
         get_fill_color="color",
-        get_line_color=[100, 100, 100, 50],
+        get_line_color=[100, 100, 100],
         elevation_scale=1,
         pickable=False,
         material=False,
-        parameters={"depthWriteEnabled": False},
+        #parameters={"depthWriteEnabled": False},
     )
     
     return layer, mask
@@ -348,8 +349,8 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
         
         colors = np.where(
             inside_parcel[:, np.newaxis],
-            np.array([[230, 240, 230, 220]]),
-            np.array([[160, 210, 170, 150]])
+            np.array([[130, 180, 140]]),
+            np.array([[160, 210, 170]])
         ).tolist()
     
     surface_data = pd.DataFrame({
@@ -364,6 +365,7 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
         get_fill_color="color",
         filled=True,
         extruded=False,
+        flat_shading=True,
         stroked=False,
         pickable=False,
         material=False,

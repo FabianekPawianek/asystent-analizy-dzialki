@@ -334,7 +334,7 @@ def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_
     lidar_layers = []
     
     pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
-        dsm_for_viz, dtm_for_viz, transform, subsample=2
+        dsm_for_viz, dtm_for_viz, transform, subsample=1
     )
     if pillars_layer:
         lidar_layers.append(pillars_layer)
@@ -1157,7 +1157,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             lidar_layers = []
                             
                             pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
-                                dsm_viz, dtm_viz, transform_dsm, subsample=2
+                                dsm_viz, dtm_viz, transform_dsm, subsample=1
                             )
                             if pillars_layer:
                                 lidar_layers.append(pillars_layer)
@@ -1175,7 +1175,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                 zoom=17.5,
                                 pitch=50,
                                 bearing=0,
-                                max_pitch=85
+                                max_pitch=90
                             )
                             
                             deck_3d_view = pdk.Deck(
