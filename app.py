@@ -317,6 +317,9 @@ def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_
     parcel_geoms = [wkt.loads(g) for g in parcel_geoms_wkt]
     
     lidar_service = LidarService()
+
+    dsm_data = lidar_service.apply_circular_mask(dsm_data)
+    dtm_data = lidar_service.apply_circular_mask(dtm_data)
     
     min_elevation = np.nanmin(dtm_data)
     dsm_data = dsm_data - min_elevation
@@ -1023,7 +1026,6 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.session_state.selected_parcels.append(parcel_data)
                         st.success(f"Działka {parcel_data['ID Działki']} zaznaczona")
                     
-                    # Czyść cache LiDAR 3D przy zmianie działek
                     for key in ['lidar_3d_deck', 'lidar_3d_bbox', 'lidar_3d_parcels_key']:
                         st.session_state.pop(key, None)
                     
