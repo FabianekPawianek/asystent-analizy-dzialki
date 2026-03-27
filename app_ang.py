@@ -34,7 +34,7 @@ try:
     mpzp_agent.init_ai(API_KEY)
 except Exception as e:
     st.error(str(e))
-    st.info("Dodaj GOOGLE_API_KEY do pliku .env lub do Streamlit Secrets.")
+    st.info("Add GOOGLE_API_KEY to the .env file or Streamlit Secrets.")
     st.stop()
 
 
@@ -66,7 +66,7 @@ def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center
         )
 
     except Exception as e:
-        st.error(f"Wystąpił krytyczny błąd podczas generowania modelu 3D: {e}")
+        st.error(f"A critical error occurred while generating the 3D model: {e}")
         import traceback
         st.text(traceback.format_exc())
         return None
@@ -93,7 +93,7 @@ def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_
                     polygons = [building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
                     for poly in polygons: buildings_data_for_pydeck.append({"polygon": [list(poly.exterior.coords)], "height": float(building.height)})
         else:
-             st.info("Nie znaleziono danych o budynkach w okolicy w bazie OpenStreetMap.")
+             st.info("No building data found nearby in the OpenStreetMap database.")
         layer_buildings = pdk.Layer("PolygonLayer", data=buildings_data_for_pydeck, get_polygon="polygon", extruded=True, wireframe=True, get_elevation="height", get_fill_color=[180, 180, 180, 200], get_line_color=[100, 100, 100])
         
         parcel_data_for_pydeck = []
@@ -121,7 +121,7 @@ def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_
         )
 
     except Exception as e:
-        st.error(f"Wystąpił krytyczny błąd podczas generowania modelu 3D: {e}")
+        st.error(f"A critical error occurred while generating the 3D model: {e}")
         import traceback
         st.text(traceback.format_exc())
         return None
@@ -147,7 +147,7 @@ def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style:
                     polygons = [building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
                     for poly in polygons: buildings_data_for_pydeck.append({"polygon": [list(poly.exterior.coords)], "height": float(building.height)})
         else:
-             st.info("Nie znaleziono danych o budynkach w okolicy w bazie OpenStreetMap.")
+             st.info("No building data found nearby in the OpenStreetMap database.")
         layer_buildings = pdk.Layer("PolygonLayer", data=buildings_data_for_pydeck, get_polygon="polygon", extruded=True, wireframe=True, get_elevation="height", get_fill_color=[180, 180, 180, 200], get_line_color=[100, 100, 100])
         parcel_polygon_coords = [list(Polygon(parcel_coords_wgs_84).exterior.coords)]
         parcel_data_for_pydeck = [{"polygon": parcel_polygon_coords, "height": 1.0}]
@@ -163,7 +163,7 @@ def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style:
         )
 
     except Exception as e:
-        st.error(f"Wystąpił krytyczny błąd podczas generowania modelu 3D: {e}")
+        st.error(f"A critical error occurred while generating the 3D model: {e}")
         import traceback
         st.text(traceback.format_exc())
         return None
@@ -472,7 +472,7 @@ def run_solar_simulation(
             st.session_state['lidar_point_cloud_layer'] = lidar_layers
             
         except Exception as e:
-            st.error(f"Błąd pobierania danych LiDAR: {e}. Przełączam na tryb OSM.")
+            st.error(f"Error fetching LiDAR data: {e}. Switching to OSM mode.")
             buildings_data_metric = [
                 {'polygon': b_tuple[0], 'height': b_tuple[1]} for b_tuple in _buildings_data_metric_tuple
             ]
@@ -484,7 +484,7 @@ def run_solar_simulation(
         scene = solar.create_trimesh_scene(buildings_data_metric)
     
     if scene.is_empty:
-        st.warning("Nie udało się wygenerować geometrii 3D otoczenia. Analiza pokazuje nasłonecznienie bez uwzględnienia cieni.")
+        st.warning("Failed to generate 3D environment geometry. The analysis will show insolation without accounting for shadows.")
     
     sunlit_hours = solar.calculate_shadows(
         scene, 
@@ -923,7 +923,7 @@ if not st.session_state.show_search and not st.session_state.map_center:
         <h1 style="font-size: 4rem; margin-bottom: 1rem; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
             Plot Site Analyzer
         </h1>
-        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin/Polska • Beta Version 0.2.2</p>
+        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin/Poland • Beta Version 0.2.2</p>
         <p style="font-size: 1rem; color: #616161; margin-bottom: 3rem;">
             Author: Fabian Korycki | Powered by <span style="color: #28a745; font-weight: 600;">Google Gemini AI </span> & <span style="color: #28a745; font-weight: 600;">Geoportal.gov.pl </span>
         </p>
@@ -983,19 +983,19 @@ if st.session_state.show_search or st.session_state.map_center:
         m = folium.Map(location=st.session_state.map_center, zoom_start=18)
         folium.TileLayer(
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            attr='Esri', name='Satelita', overlay=True).add_to(m)
+            attr='Esri', name='Satellite', overlay=True).add_to(m)
         folium.WmsTileLayer(url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
                             layers="dzialki,numery_dzialek", transparent=True, fmt="image/png",
-                            name="Działki Ewidencyjne").add_to(m)
+                            name="Cadastral Parcels").add_to(m)
         folium.LayerControl().add_to(m)
 
         m = folium.Map(location=st.session_state.map_center, zoom_start=18)
         folium.TileLayer(
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            attr='Esri', name='Satelita', overlay=True).add_to(m)
+            attr='Esri', name='Satellite', overlay=True).add_to(m)
         folium.WmsTileLayer(url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
                             layers="dzialki,numery_dzialek", transparent=True, fmt="image/png",
-                            name="Działki Ewidencyjne").add_to(m)
+                            name="Cadastral Parcels").add_to(m)
         folium.LayerControl().add_to(m)
 
         for parcel in st.session_state.selected_parcels:
@@ -1021,10 +1021,10 @@ if st.session_state.show_search or st.session_state.map_center:
 
                     if existing_index is not None:
                         st.session_state.selected_parcels.pop(existing_index)
-                        st.info(f"Działka {parcel_data['ID Działki']} odznaczona")
+                        st.info(f"Parcel {parcel_data['ID Działki']} unselected")
                     else:
                         st.session_state.selected_parcels.append(parcel_data)
-                        st.success(f"Działka {parcel_data['ID Działki']} zaznaczona")
+                        st.success(f"Parcel {parcel_data['ID Działki']} selected")
                     
                     for key in ['lidar_3d_deck', 'lidar_3d_bbox', 'lidar_3d_parcels_key']:
                         st.session_state.pop(key, None)
@@ -1061,24 +1061,24 @@ if st.session_state.show_search or st.session_state.map_center:
                 index=0,
                 horizontal=True,
                 key="view_3d_source_radio",
-                help="OSM pokazuje budynki z OpenStreetMap. LiDAR pokazuje dokładny model terenu z chmurą punktów."
+                help="OSM shows buildings from OpenStreetMap. LiDAR provides an accurate terrain model with a point cloud."
             )
         
         with col_radius:
             radius_3d = st.radio(
-                "Analyzys radius (meters):",
+                "Analysis radius (meters):",
                 options=[250, 500, 1000],
                 index=1,
                 horizontal=True,
                 key="radius_3d",
-                help="Określa zasięg pobieranych danych wokół działki. Większy promień = więcej kontekstu, ale dłuższe ładowanie."
+                help="Defines the data fetch range around the parcel. Larger radius = more context, but longer loading."
             )
         
         show_3d_context = st.button(
             "Generate 3D view of environment",
             key="generate_3d_button",
             use_container_width=True,
-            help="Generowanie widoku 3D może zająć kilka sekund"
+            help="Generating the 3D view may take a few seconds"
         )
 
         if 'show_3d' not in st.session_state:
@@ -1192,8 +1192,8 @@ if st.session_state.show_search or st.session_state.map_center:
                             st.session_state['lidar_3d_parcels_key'] = parcel_ids_key
                             
                         except Exception as e:
-                            st.error(f"Błąd pobierania danych LiDAR: {e}")
-                            st.info("Przełączam na widok OSM...")
+                            st.error(f"Error fetching LiDAR data: {e}")
+                            st.info("Switching to OSM view...")
                             use_lidar_3d = False
                             st.session_state.pop('lidar_3d_deck', None)
                 
@@ -1201,10 +1201,10 @@ if st.session_state.show_search or st.session_state.map_center:
                     st.markdown("""
                     <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
                         <p style="margin: 0; color: #424242; font-size: 0.95rem;">
-                            <strong>Sterowanie kamerą:</strong>
-                            <strong>Obrót:</strong> Shift/Ctrl + przeciągnij |
-                            <strong>Przesuwanie:</strong> Przeciągnij |
-                            <strong>Zoom:</strong> Kółko myszy
+                            <strong>Camera controls:</strong>
+                            <strong>Rotate:</strong> Shift/Ctrl + drag |
+                            <strong>Pan:</strong> Drag |
+                            <strong>Zoom:</strong> Mouse wheel
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
@@ -1217,10 +1217,10 @@ if st.session_state.show_search or st.session_state.map_center:
                         clean_addr = re.sub(r'[^a-zA-Z0-9_]', '', clean_addr)
                         clean_addr = clean_addr[:50]
                     else:
-                        clean_addr = "Analiza_Dzialki"
+                        clean_addr = "Parcel_Analysis"
 
                     obj_filename = f"Model_3D_{clean_addr}_{current_date}.obj"
-                    xyz_filename = f"Punkty_XYZ_{clean_addr}_{current_date}.xyz"
+                    xyz_filename = f"XYZ_Points_{clean_addr}_{current_date}.xyz"
 
                     col_1, col_2 = st.columns(2, gap="large")
 
@@ -1228,7 +1228,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
                         with col_btn2:
                             st.download_button(
-                                label="Pobierz model 3D `.obj`",
+                                label="Download 3D model `.obj`",
                                 data=get_lidar_raw_obj_bytes(current_lidar_bbox),
                                 file_name=obj_filename,
                                 use_container_width=True
@@ -1237,7 +1237,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
                         with col_btn2:
                             st.download_button(
-                                label="Pobierz chmurę punktów `.xyz`",
+                                label="Download point cloud `.xyz`",
                                 data=get_lidar_raw_xyz_bytes(current_lidar_bbox),
                                 file_name=xyz_filename,
                                 use_container_width=True
@@ -1245,7 +1245,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
             
             if not use_lidar_3d:
-                with st.spinner("Generuję model 3D otoczenia..."):
+                with st.spinner("Generating 3D environment model..."):
                     all_parcel_coords_list = []
                     for parcel in st.session_state.selected_parcels:
                         coords_wgs84_single = geospatial.transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
@@ -1272,10 +1272,10 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.markdown("""
                         <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
                             <p style="margin: 0; color: #424242; font-size: 0.95rem;">
-                                <strong>Sterowanie kamerą:</strong>
-                                <strong>Obrót:</strong> PPM + przeciągnij |
-                                <strong>Przesuwanie:</strong> Przeciągnij |
-                                <strong>Zoom:</strong> Kółko myszy
+                                <strong>Camera controls:</strong>
+                                <strong>Rotate:</strong> Right mouse button + drag |
+                                <strong>Pan:</strong> Drag |
+                                <strong>Zoom:</strong> Mouse wheel
                             </p>
                         </div>
                         """, unsafe_allow_html=True)
@@ -1286,8 +1286,8 @@ if st.session_state.show_search or st.session_state.map_center:
         if st.session_state.selected_parcels:
             st.markdown("""
             <div style="text-align: center; margin: 10rem 0 3rem 0;">
-                <h2 style="font-size: 2.2rem; margin-bottom: 0.5rem;">Wybierz typ analizy</h2>
-                <p style="color: #616161; font-size: 1.05rem;">Kliknij jedną z opcji, aby rozpocząć szczegółową analizę</p>
+                <h2 style="font-size: 2.2rem; margin-bottom: 0.5rem;">Choose analysis type</h2>
+                <p style="color: #616161; font-size: 1.05rem;">Click one of the options to start a detailed analysis</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1299,8 +1299,8 @@ if st.session_state.show_search or st.session_state.map_center:
             with analysis_col1:
                 st.markdown("""
                 <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(255,193,7,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
-                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza Nasłonecznienia</h3>
-                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
+                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Solar Insolation Analysis</h3>
+                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Calculates the average daily sun hours for each point on the parcel, accounting for shadows from neighboring buildings</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1308,14 +1308,14 @@ if st.session_state.show_search or st.session_state.map_center:
 
                 col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
                 with col_btn2:
-                    if st.button("Wybierz", key="select_solar", use_container_width=True):
+                    if st.button("Select", key="select_solar", use_container_width=True):
                         st.session_state.selected_analysis = "solar"
 
             with analysis_col2:
                 st.markdown("""
                 <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(33,150,243,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
-                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza MPZP</h3>
-                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Gemini 3.0 Flash)</p>
+                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">MPZP Analysis</h3>
+                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Intelligent analysis of planning documents using AI (Gemini 3.0 Flash)</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1323,7 +1323,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
                 col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
                 with col_btn2:
-                    if st.button("Wybierz", key="select_mpzp", use_container_width=True):
+                    if st.button("Select", key="select_mpzp", use_container_width=True):
                         st.session_state.selected_analysis = "mpzp"
 
         if st.session_state.selected_analysis == "solar":
@@ -1331,8 +1331,8 @@ if st.session_state.show_search or st.session_state.map_center:
 
             st.markdown("""
             <div style="text-align: center; margin-bottom: 2rem;">
-                <h2 style="font-size: 2rem;">Analiza Nasłonecznienia</h2>
-                <p style="color: #616161; font-size: 1rem;">Skonfiguruj parametry analizy</p>
+                <h2 style="font-size: 2rem;">Solar Insolation Analysis</h2>
+                <p style="color: #616161; font-size: 1rem;">Configure analysis parameters</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1340,54 +1340,54 @@ if st.session_state.show_search or st.session_state.map_center:
             
             with col_src_solar:
                 data_source = st.radio(
-                    "Źródło danych 3D:",
-                    options=["OSM (Budynki)", "LiDAR (Geoportal)"],
+                    "3D data source:",
+                    options=["OSM (Buildings)", "LiDAR (Geoportal)"],
                     index=0,
                     horizontal=True,
                     key="solar_data_source",
-                    help="Wybierz źródło danych do analizy cienia. OSM jest szybsze, ale mniej dokładne. LiDAR uwzględnia teren, drzewa i kształty dachów."
+                    help="Choose the data source for shadow analysis. OSM is faster but less accurate. LiDAR accounts for terrain, trees, and roof shapes."
                 )
             
             with col_rad_solar:
                 radius_solar = st.radio(
-                    "Promień analizy (metry):",
+                    "Analysis radius (meters):",
                     options=[250, 500, 1000],
                     index=1,
                     horizontal=True,
                     key="radius_solar",
-                    help="Określa zasięg pobieranych danych wokół działki. Większy promień = dokładniejsze cienie, ale dłuższa analiza."
+                    help="Defines the data fetch range around the parcel. Larger radius = more accurate shadows, but longer analysis."
                 )
             
             today = datetime(2025, 1, 1).date()
             selected_date_range = st.date_input(
-                "Wybierz dzień lub zakres dni analizy:",
+                "Select analysis day or date range:",
                 value=(today.replace(month=3, day=20), today.replace(month=3, day=20)),
             )
             hour_range = st.slider(
-                "Wybierz zakres godzin analizy:",
+                "Select analysis hours range:",
                 min_value=0, max_value=23, value=(6, 20), step=1
             )
 
             sampling_freq_label = st.radio(
-                "Dokładność próbkowania (Interwał):",
-                options=["1 godzina", "30 min", "15 min"],
+                "Sampling precision (interval):",
+                options=["1 hour", "30 min", "15 min"],
                 index=0,
                 horizontal=True
             )
             
             freq_map = {
-                "1 godzina": "1H",
+                "1 hour": "1H",
                 "30 min": "30min",
                 "15 min": "15min"
             }
             sampling_freq = freq_map[sampling_freq_label]
-            if st.button("Uruchom analizę nasłonecznienia", key="run_solar_analysis", use_container_width=True):
+            if st.button("Run solar analysis", key="run_solar_analysis", use_container_width=True):
                 start_date, end_date = selected_date_range
                 if start_date is None or end_date is None or start_date > end_date:
-                    st.error("Proszę wybrać poprawny zakres dat.")
+                    st.error("Please select a valid date range.")
                 else:
                     if not st.session_state.selected_parcels:
-                        st.error("Nie wybrano działek do analizy.")
+                        st.error("No parcels selected for analysis.")
                     else:
                         st.session_state['is_processing'] = True
                         st.session_state['processing_params'] = {
@@ -1444,7 +1444,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             combined_coords = list(shapely_polygons[0].exterior.coords)
                     
                     combined_parcel_data = {
-                        "ID Działki": f"Połączone ({len(st.session_state.selected_parcels)} działek)",
+                        "ID Działki": f"Combined ({len(st.session_state.selected_parcels)} parcels)",
                         "Współrzędne EPSG:2180": combined_coords
                     }
                     st.session_state.parcel_data = combined_parcel_data
@@ -1454,7 +1454,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 
                 num_days = (end_date - start_date).days + 1
                 num_hours = hour_range[1] - hour_range[0] + 1
-                spinner_text = f"Przeprowadzam symulację dla {num_days} {'dzień' if num_days == 1 else 'dni'}, {num_hours} {'godzina' if num_hours == 1 else 'godzin'} (godz. {hour_range[0]}:00-{hour_range[1]}:00)..."
+                spinner_text = f"Running simulation for {num_days} {'day' if num_days == 1 else 'days'}, {num_hours} {'hour' if num_hours == 1 else 'hours'} (hrs {hour_range[0]}:00-{hour_range[1]}:00)..."
                 
                 with st.spinner(spinner_text):
 
@@ -1524,7 +1524,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             parcel_poly_2180 = Polygon(coords_2180)
                             grid_points_2180 = create_analysis_grid(parcel_poly_2180, density=1.0)
                         else:
-                            st.error("Nie wybrano działki do analizy.")
+                            st.error("No parcel selected for analysis.")
                             st.session_state.solar_analysis_results = None
                             st.session_state['is_processing'] = False
                             st.rerun()
@@ -1701,7 +1701,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
                     st.pydeck_chart(r, use_container_width=True, height=600)
                 else:
-                    st.warning("Nie udało się stworzyć siatki analitycznej dla tej działki.")
+                    st.warning("Failed to create the analysis grid for this parcel.")
 
 
 
@@ -1711,8 +1711,8 @@ if st.session_state.show_search or st.session_state.map_center:
 
             st.markdown("""
             <div style="text-align: center; margin-bottom: 2rem;">
-                <h2 style="font-size: 2rem;">Analiza MPZP (Agent AI)</h2>
-                <p style="color: #616161; font-size: 1rem;">Agent nawiguje po geoportalu i analizuje dokumenty planistyczne</p>
+                <h2 style="font-size: 2rem;">MPZP Analysis (AI Agent)</h2>
+                <p style="color: #616161; font-size: 1rem;">The agent navigates the geoportal and analyzes planning documents</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1720,12 +1720,12 @@ if st.session_state.show_search or st.session_state.map_center:
                 st.session_state.mpzp_analysis_started = False
 
             if not st.session_state.mpzp_analysis_started:
-                start_btn = st.button("Rozpocznij analizę AI", key="run_mpzp_analysis", use_container_width=True)
+                start_btn = st.button("Start AI analysis", key="run_mpzp_analysis", use_container_width=True)
                 if start_btn:
                     st.session_state.mpzp_analysis_started = True
 
             if st.session_state.mpzp_analysis_started and not st.session_state.get('analysis_results'):
-                st.info("Agent AI uruchomiony - pobieram dokumenty i analizuję...")
+                st.info("AI agent started — fetching documents and analyzing...")
                 try:
                     if st.session_state.selected_parcels:
                         primary_parcel_id = st.session_state.selected_parcels[0]['ID Działki']
@@ -1748,26 +1748,26 @@ if st.session_state.show_search or st.session_state.map_center:
                             st.session_state.analysis_results = results
 
 
-                            st.success("Analiza zakończona!")
+                            st.success("Analysis completed!")
                         else:
-                            st.error("Nie udało się pobrać wyników analizy.")
+                            st.error("Failed to retrieve analysis results.")
                             st.session_state.mpzp_analysis_started = False
                     else:
-                        st.error("Nie wybrano żadnych działek do analizy.")
+                        st.error("No parcels selected for analysis.")
                         st.session_state.mpzp_analysis_started = False
                 except Exception as e:
-                    st.error(f"Błąd podczas analizy: {str(e)}")
+                    st.error(f"Error during analysis: {str(e)}")
                     st.session_state.mpzp_analysis_started = False
 
             if st.session_state.get('analysis_results'):
                 results = st.session_state.analysis_results
                 if 'analysis' in results and results['analysis']:
-                    st.success("Misja Agenta Analityka zakończona!")
+                    st.success("Analyst Agent mission accomplished!")
                     if 'ogolne' in results['analysis'] and results['analysis']['ogolne']:
-                        st.markdown(f"**Cel Planu:**");
-                        st.info(f"{results['analysis']['ogolne'].get('Cel Planu', 'Brak danych.')}")
+                        st.markdown(f"**Plan Objective:**");
+                        st.info(f"{results['analysis']['ogolne'].get('Cel Planu', 'No data.')}")
                     if 'szczegolowe' in results['analysis'] and results['analysis']['szczegolowe']:
-                        st.subheader(f"Teren: {results['analysis']['szczegolowe'].get('Oznaczenie Terenu', 'N/A')}")
+                        st.subheader(f"Area: {results['analysis']['szczegolowe'].get('Oznaczenie Terenu', 'N/A')}")
                         for key, value in results['analysis']['szczegolowe'].items():
                             if key != 'Oznaczenie Terenu': st.markdown(f"**{key}:**"); st.info(f"{value}")
                 if 'links' in results and results['links']:
@@ -1777,7 +1777,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         with col_btn2:
                             for label, meta in docs.items():
                                 st.download_button(
-                                    label=f"Pobierz: {label}",
+                                    label=f"Download: {label}",
                                     data=meta['content'],
                                     file_name=meta.get('filename') or (label.replace(' ', '_') + '.pdf'),
                                     use_container_width=True

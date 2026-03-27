@@ -39,14 +39,14 @@ def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
         rgb = f"rgb({int(rgba[0] * 255)}, {int(rgba[1] * 255)}, {int(rgba[2] * 255)})"
         label = f"{min_val:.1f}h"
         header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
-        title = "<div style='margin-bottom: 8px;'><b>Śr. dzienne nasłonecznienie</b></div>"
+        title = "<div style='margin-bottom: 8px;'><b>Czas nasłonecznienia [h]</b></div>"
         content = f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 35px; background: {rgb};'></div><div>{label}</div></div>"
         return f"{header}{title}{content}</div>"
 
     values = np.linspace(min_val, max_val, steps)
     colors = cm.get_cmap(colormap)(np.linspace(0, 0.90, steps))
     header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
-    title = "<div style='margin-bottom: 8px;'><b>Śr. dzienne nasłonecznienie</b></div>"
+    title = "<div style='margin-bottom: 8px;'><b>Czas nasłonecznienia [h]</b></div>"
     content = "<div style='display: flex; flex-direction: row; align-items: center; justify-content: space-between;'>"
 
     for i in range(steps):
