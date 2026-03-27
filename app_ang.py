@@ -960,7 +960,7 @@ if st.session_state.show_search or st.session_state.map_center:
     if submitted:
         st.session_state.parcel_data = None;
         st.session_state.analysis_results = None
-        with st.spinner("Coordinates domloading..."):
+        with st.spinner("Coordinates downloading..."):
             coords, error = geospatial.geocode_address_to_coords(address_input)
             if error:
                 st.error(error); st.session_state.map_center = None

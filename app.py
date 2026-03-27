@@ -921,11 +921,11 @@ if not st.session_state.show_search and not st.session_state.map_center:
     st.markdown("""
     <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 85vh; text-align: center;">
         <h1 style="font-size: 4rem; margin-bottom: 1rem; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
-            Plot Site Analyzer
+            Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin/Polska • Beta Version 0.2.2</p>
+        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin/Polska • Wersja Beta 0.2.2</p>
         <p style="font-size: 1rem; color: #616161; margin-bottom: 3rem;">
-            Author: Fabian Korycki | Powered by <span style="color: #28a745; font-weight: 600;">Google Gemini AI </span> & <span style="color: #28a745; font-weight: 600;">Geoportal.gov.pl </span>
+            Autor: Fabian Korycki | Powered by <span style="color: #28a745; font-weight: 600;">Google Gemini AI </span> & <span style="color: #28a745; font-weight: 600;">Geoportal.gov.pl </span>
         </p>
     </div>
 
@@ -939,7 +939,7 @@ if not st.session_state.show_search and not st.session_state.map_center:
 
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        if st.button("Start", key="start_button", use_container_width=True):
+        if st.button("Rozpocznij", key="start_button", use_container_width=True):
             st.session_state.show_search = True
             st.rerun()
 
@@ -947,20 +947,20 @@ if st.session_state.show_search or st.session_state.map_center:
     st.markdown("""
     <div style="text-align: center; padding: 2rem 0 1rem 0;">
         <h1 style="font-size: 4rem; margin: 0; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
-            Plot Site Analyzer
+            Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1rem; color: #616161; margin: 0.5rem 0 0 0;">Szczecin/Poland • Beta Version 0.2.2</p>
+        <p style="font-size: 1rem; color: #616161; margin: 0.5rem 0 0 0;">Szczecin/Polska • Wersja Beta 0.2.2</p>
     </div>
     """, unsafe_allow_html=True)
 
     with st.form(key="address_form"):
-        address_input = st.text_input("Write addres or coordinates:", "", label_visibility="collapsed", placeholder="Write addres, e.g. Kolumba 64, Szczecin")
-        submitted = st.form_submit_button("Search plot", use_container_width=True)
+        address_input = st.text_input("Wpisz adres lub współrzędne:", "", label_visibility="collapsed", placeholder="Wpisz adres, np. Kolumba 64, Szczecin")
+        submitted = st.form_submit_button("Wyszukaj działkę", use_container_width=True)
 
     if submitted:
         st.session_state.parcel_data = None;
         st.session_state.analysis_results = None
-        with st.spinner("Coordinates domloading..."):
+        with st.spinner("Pobieram współrzędne..."):
             coords, error = geospatial.geocode_address_to_coords(address_input)
             if error:
                 st.error(error); st.session_state.map_center = None
@@ -971,9 +971,9 @@ if st.session_state.show_search or st.session_state.map_center:
         st.markdown("""
         <div style="text-align: center; margin-bottom: 1rem;">
             <h2 style="background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 600;">
-                Choose plot on map
+                Wybierz działki na mapie
             </h2>
-            <p style="color: #616161; font-size: 1rem;">Click on plot to mark it or unmark it. Choose analyze in the bottom page.</p>
+            <p style="color: #616161; font-size: 1rem;">Kliknij na działki, aby je zaznaczyć/odznaczyć. Wybierz analizę z dołu strony.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1008,7 +1008,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
         if map_data and map_data.get("last_clicked"):
             lat, lon = map_data["last_clicked"]["lat"], map_data["last_clicked"]["lng"]
-            with st.spinner(f"Plot identification..."):
+            with st.spinner(f"Identyfikuję działkę..."):
                 parcel_data, error = geospatial.get_parcel_from_coords(lat, lon)
                 if error:
                     st.error(error)
@@ -1056,8 +1056,8 @@ if st.session_state.show_search or st.session_state.map_center:
         
         with col_source:
             view_3d_source = st.radio(
-                "Choose source of 3D model:",
-                options=["OSM (Buildings)", "LiDAR (Geoportal)"],
+                "Wybierz źródło modelu 3D:",
+                options=["OSM (Budynki)", "LiDAR (Geoportal)"],
                 index=0,
                 horizontal=True,
                 key="view_3d_source_radio",
@@ -1066,7 +1066,7 @@ if st.session_state.show_search or st.session_state.map_center:
         
         with col_radius:
             radius_3d = st.radio(
-                "Analyzys radius (meters):",
+                "Promień analizy (metry):",
                 options=[250, 500, 1000],
                 index=1,
                 horizontal=True,
@@ -1075,7 +1075,7 @@ if st.session_state.show_search or st.session_state.map_center:
             )
         
         show_3d_context = st.button(
-            "Generate 3D view of environment",
+            "Wygeneruj widok 3D otoczenia",
             key="generate_3d_button",
             use_container_width=True,
             help="Generowanie widoku 3D może zająć kilka sekund"
@@ -1133,7 +1133,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                  or 'lidar_3d_deck' not in st.session_state)
                 
                 if needs_refresh:
-                    with st.spinner("Downloading LiDAR data and generating 3D view..."):
+                    with st.spinner("Pobieram dane LiDAR z Geoportalu i generuję model 3D..."):
                         try:
                             dsm_data, transform_dsm, dtm_data, dtm_transform = get_cached_lidar_data(current_lidar_bbox)
                             
