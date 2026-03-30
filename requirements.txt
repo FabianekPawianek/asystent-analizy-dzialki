@@ -11,7 +11,7 @@ trimesh
 shapely
 pyproj
 selenium
-google-generativeai
+google-genai
 open3d
 matplotlib
 geopandas
