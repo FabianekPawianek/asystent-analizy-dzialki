@@ -10,20 +10,22 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import config
 import streamlit as st
 from urllib.parse import urlparse
 
-generative_model = None
+client = None
+
 
 def init_ai(api_key):
-    global generative_model
+    global client
     try:
-        genai.configure(api_key=api_key)
-        generative_model = genai.GenerativeModel(config.MODEL_NAME)
+        client = genai.Client(api_key=api_key)
     except Exception as e:
         raise Exception(f"Failed to initialize Google AI: {e}")
+
 
 def perform_ai_step(driver, goal_prompt, status_callback=None):
     if status_callback:
@@ -37,10 +39,11 @@ def perform_ai_step(driver, goal_prompt, status_callback=None):
     prompt = f"You are assisting with UI automation. Goal: '{goal_prompt}'. Return JSON with the key `element_text` indicating the on-screen text of the element to click."
 
     try:
-        response = generative_model.generate_content([
-            {"mime_type": "image/png", "data": screenshot_bytes},
-            prompt
-        ])
+        image_part = types.Part.from_bytes(data=screenshot_bytes, mime_type="image/png")
+        response = client.models.generate_content(
+            model=config.MODEL_NAME,
+            contents=[image_part, prompt]
+        )
         ai_response_text = (response.text or "").strip().replace("```json", "").replace("```", "")
         try:
             element_text = json.loads(ai_response_text).get("element_text")
@@ -50,10 +53,11 @@ def perform_ai_step(driver, goal_prompt, status_callback=None):
     except Exception as e:
         return None, f"AI processing error: {e}"
 
+
 def extract_links_by_clicking(driver, wait, status_callback=None):
     if status_callback:
         status_callback("info", " **Goal:** Link extraction.")
-        
+
     extracted_links = {}
     links_to_find = ["Ustalenia ogólne", "Ustalenia morfoplastyczne", "Ustalenia szczegółowe", "Ustalenia końcowe"]
     original_window = driver.current_window_handle
@@ -70,10 +74,10 @@ def extract_links_by_clicking(driver, wait, status_callback=None):
                 new_window = [w for w in driver.window_handles if w != original_window][0]
                 driver.switch_to.window(new_window)
                 extracted_links[label] = driver.current_url
-                
+
                 if status_callback:
                     status_callback("success", f"Captured link: {label}")
-                    
+
                 driver.close()
                 driver.switch_to.window(original_window)
                 time.sleep(1)
@@ -84,6 +88,7 @@ def extract_links_by_clicking(driver, wait, status_callback=None):
             pass
 
     return extracted_links
+
 
 def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
     links_dict = dict(_links_tuple)
@@ -104,8 +109,8 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
 
                 if len(extracted_text.strip()) < 100:
                     if status_callback:
-                        status_callback("warning", f"Document '{label}' does not contain a text layer. Using OCR...")
-                    
+                        status_callback("warning", f"Dokument '{label}' does not contain a text layer. Using OCR...")
+
                     extracted_text = ""
 
                     try:
@@ -114,7 +119,7 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
                         import io
 
                         for page_num, page in enumerate(doc, start=1):
-                            pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
+                            pix = page.get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72))
                             img_bytes = pix.tobytes("png")
                             img = Image.open(io.BytesIO(img_bytes))
 
@@ -122,11 +127,13 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
                             extracted_text += page_text_ocr + "\n"
 
                             if status_callback:
-                                status_callback("info", f"OCR page {page_num}/{len(doc)} - extracted {len(page_text_ocr)} characters")
+                                status_callback("info",
+                                                f"OCR page {page_num}/{len(doc)} - extracted {len(page_text_ocr)} characters")
 
                         if extracted_text.strip():
                             if status_callback:
-                                status_callback("success", f"OCR completed for '{label}' - {len(extracted_text)} characters")
+                                status_callback("success",
+                                                f"OCR completed for '{label}' - {len(extracted_text)} characters")
                         else:
                             if status_callback:
                                 status_callback("error", f"OCR detected no text in document '{label}'")
@@ -148,13 +155,14 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
             continue
 
     if "Ustalenia ogólne" in docs_content and docs_content["Ustalenia ogólne"]:
-        prompt = ("You are a professional urban planner. Analyze the provided documents and provide the final report strictly in English.\n\n"
+        prompt = f"You are a professional urban planner. Analyze the provided documents and provide the final report strictly in English.\n\n"
             f"Based on the following document, what is the overall objective and character of the area covered by this local plan?\n\n"
-            f"Document:\n---\n{docs_content['Ustalenia ogólne']}")
+            f"Document:\n---\n{docs_content['Ustalenia ogólne']}"
         try:
-            results['ogolne']['Cel Planu'] = (generative_model.generate_content(prompt).text or "").strip()
+            results['ogolne']['Cel Planu'] = (
+                        client.models.generate_content(model=config.MODEL_NAME, contents=prompt).text or "").strip()
         except Exception as e:
-            results['ogolne']['Cel Planu'] = f"AI error: {e}"
+            results['ogolne']['Cel Planu'] = f"Błąd AI: {e}"
 
     if "Ustalenia szczegółowe" in docs_content:
         doc_szczegolowe = docs_content["Ustalenia szczegółowe"]
@@ -193,20 +201,16 @@ Document text:
 {doc_szczegolowe[:25000]} 
 """
             try:
-                ai_text = (generative_model.generate_content(prompt).text or "").strip()
-                cleaned = ai_text.replace("```json", "").replace("```", "").strip()
+                response = client.models.generate_content(
+                    model=config.MODEL_NAME,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json"),
+                )
                 parsed = None
                 try:
-                    parsed = json.loads(cleaned)
+                    parsed = json.loads((response.text or "").strip())
                 except Exception:
-                    start = cleaned.find("{")
-                    end = cleaned.rfind("}")
-                    if start != -1 and end != -1 and end > start:
-                        possible_json = cleaned[start:end+1]
-                        try:
-                            parsed = json.loads(possible_json)
-                        except Exception:
-                            parsed = None
+                    parsed = None
                 default_val = "No specific provisions in this excerpt"
                 fields = [
                     "Oznaczenie Terenu",
@@ -220,56 +224,16 @@ Document text:
                         results['szczegolowe'][key] = str(parsed[key]).strip()
                     else:
                         results['szczegolowe'][key] = default_val
-                # Remap display labels to English while preserving the key used by the UI header
-                eng_map = {
-                    "Przeznaczenie terenu": "Land use",
-                    "Wysokość zabudowy": "Building height",
-                    "Wskaźniki zabudowy": "Development parameters",
-                    "Geometria dachu": "Roof geometry",
-                }
-                if 'szczegolowe' in results and isinstance(results['szczegolowe'], dict):
-                    sz = results['szczegolowe']
-                    sz_eng = {}
-                    # Preserve for header usage in UI
-                    if "Oznaczenie Terenu" in sz:
-                        sz_eng["Oznaczenie Terenu"] = sz["Oznaczenie Terenu"]
-                    # Translate other labels
-                    for pl_key, en_key in eng_map.items():
-                        if pl_key in sz and sz[pl_key]:
-                            sz_eng[en_key] = sz[pl_key]
-                        else:
-                            sz_eng[en_key] = default_val
-                    results['szczegolowe'] = sz_eng
-
             except Exception as e:
-                for key in ["Oznaczenie Terenu","Przeznaczenie terenu","Wysokość zabudowy","Wskaźniki zabudowy","Geometria dachu"]:
-                    results['szczegolowe'][key] = f"AI error: {e}"
-                # Remap error labels to English for display consistency
-                eng_map = {
-                    "Przeznaczenie terenu": "Land use",
-                    "Wysokość zabudowy": "Building height",
-                    "Wskaźniki zabudowy": "Development parameters",
-                    "Geometria dachu": "Roof geometry",
-                }
-                if 'szczegolowe' in results and isinstance(results['szczegolowe'], dict):
-                    sz = results['szczegolowe']
-                    sz_eng = {}
-                    if "Oznaczenie Terenu" in sz:
-                        sz_eng["Oznaczenie Terenu"] = sz["Oznaczenie Terenu"]
-                    for pl_key, en_key in eng_map.items():
-                        sz_eng[en_key] = sz.get(pl_key, f"AI error: {e}")
-                    results['szczegolowe'] = sz_eng
-
+                for key in ["Oznaczenie Terenu", "Przeznaczenie terenu", "Wysokość zabudowy", "Wskaźniki zabudowy",
+                            "Geometria dachu"]:
+                    results['szczegolowe'][key] = f"Błąd AI: {e}"
 
     return results
 
 
 @st.cache_data(show_spinner=False)
 def fetch_raw_docs_cached(links_items: tuple):
-    """Fetch and cache raw MPZP source files.
-    links_items: tuple of (label, url) pairs (sorted for determinism)
-    Returns dict[label] = { 'url': url, 'content': bytes, 'mime': str, 'filename': str }
-    """
     out = {}
     for label, url in links_items:
         try:
@@ -289,6 +253,7 @@ def fetch_raw_docs_cached(links_items: tuple):
             continue
     return out
 
+
 def run_ai_agent_flow(parcel_id, status_callback=None):
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
@@ -306,7 +271,7 @@ def run_ai_agent_flow(parcel_id, status_callback=None):
 
     driver = webdriver.Chrome(service=service, options=options)
     final_results = {}
-    
+
     try:
         driver.get("https://mapa.szczecin.eu/gpt4/?permalink=56520129")
         time.sleep(5)
@@ -315,18 +280,21 @@ def run_ai_agent_flow(parcel_id, status_callback=None):
         search_box = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Szukaj...']")))
         search_box.send_keys(parcel_id)
         wait.until(EC.visibility_of_element_located((By.XPATH, "//li[contains(@class, 'x-boundlist-item')]")))
-        time.sleep(1); search_box.send_keys(Keys.RETURN)
-        time.sleep(1); search_box.send_keys(Keys.RETURN)
-        
+        time.sleep(1);
+        search_box.send_keys(Keys.RETURN)
+        time.sleep(1);
+        search_box.send_keys(Keys.RETURN)
+
         if status_callback:
             status_callback("success", "Step 1/3: Parcel located.")
-            
+
         time.sleep(4)
-        ActionChains(driver).move_by_offset(driver.get_window_size()['width'] / 2, driver.get_window_size()['height'] / 2).context_click().perform()
-        
+        ActionChains(driver).move_by_offset(driver.get_window_size()['width'] / 2,
+                                            driver.get_window_size()['height'] / 2).context_click().perform()
+
         if status_callback:
             status_callback("success", "Step 2/3: Context menu opened.")
-            
+
         time.sleep(1)
         try:
             wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Informacje o obiekcie')]"))).click()
@@ -340,17 +308,18 @@ def run_ai_agent_flow(parcel_id, status_callback=None):
 
         if status_callback:
             status_callback("info", "Step 3/3: Checking MPZP status in the dedicated window...")
-            
+
         time.sleep(2)
 
         info_window_context_xpath = "//div[contains(@class, 'x-window') and .//span[text()='Informacje o obiekcie']]"
-        mpzp_uchwalony_locator = (By.XPATH, info_window_context_xpath + "//*[contains(text(), 'MPZP - Tereny elementarne')]")
+        mpzp_uchwalony_locator = (By.XPATH,
+                                  info_window_context_xpath + "//*[contains(text(), 'MPZP - Tereny elementarne')]")
         mpzp_wszczety_locator = (By.XPATH, info_window_context_xpath + "//*[contains(text(), 'MPZP - plany wszczęte')]")
 
         if driver.find_elements(*mpzp_uchwalony_locator):
             if status_callback:
                 status_callback("success", "Found an ADOPTED MPZP for this parcel. Continuing analysis...")
-                
+
             try:
                 driver.find_element(*mpzp_uchwalony_locator).click()
                 time.sleep(2)
@@ -362,12 +331,13 @@ def run_ai_agent_flow(parcel_id, status_callback=None):
 
                     if status_callback:
                         status_callback("info", "Starting the AI Analyst Agent...")
-                        
+
                     analysis = analyze_documents_with_ai(tuple(sorted(final_links.items())), parcel_id, status_callback)
                     if analysis: final_results['analysis'] = analysis
                 else:
                     if status_callback:
-                        status_callback("error", "Failed to extract any links even though MPZP was identified.")
+                        status_callback("error",
+                                        "Failed to extract any links even though MPZP was identified.")
             except Exception as e:
                 if status_callback:
                     status_callback("error", f"An error occurred during interaction with the existing MPZP: {e}")
@@ -375,13 +345,15 @@ def run_ai_agent_flow(parcel_id, status_callback=None):
 
         elif driver.find_elements(*mpzp_wszczety_locator):
             if status_callback:
-                status_callback("warning", "For this parcel, the MPZP preparation procedure has been initiated, but the plan has not yet been adopted.")
+                status_callback("warning",
+                                "For this parcel, the MPZP preparation procedure has been initiated, but the plan has not yet been adopted.")
                 status_callback("info", "The agent is terminating, as there are no final documents to analyze yet.")
             return {"status": "wszczęty"}
 
         else:
             if status_callback:
-                status_callback("error", "No MPZP data was found in the information window for the selected parcel.")
+                status_callback("error",
+                                "No MPZP data was found in the information window for the selected parcel.")
                 status_callback("info", "The agent is terminating.")
             return {"status": "brak"}
 

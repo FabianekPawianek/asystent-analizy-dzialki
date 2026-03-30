@@ -10,18 +10,18 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import config
 import streamlit as st
 from urllib.parse import urlparse
 
-generative_model = None
+client = None
 
 def init_ai(api_key):
-    global generative_model
+    global client
     try:
-        genai.configure(api_key=api_key)
-        generative_model = genai.GenerativeModel(config.MODEL_NAME)
+        client = genai.Client(api_key=api_key)
     except Exception as e:
         raise Exception(f"Nie udało się zainicjalizować Google AI: {e}")
 
@@ -37,10 +37,11 @@ def perform_ai_step(driver, goal_prompt, status_callback=None):
     prompt = f"Cel: '{goal_prompt}'. Zwróć JSON z kluczem `element_text` do kliknięcia."
 
     try:
-        response = generative_model.generate_content([
-            {"mime_type": "image/png", "data": screenshot_bytes},
-            prompt
-        ])
+        image_part = types.Part.from_bytes(data=screenshot_bytes, mime_type="image/png")
+        response = client.models.generate_content(
+            model=config.MODEL_NAME,
+            contents=[image_part, prompt]
+        )
         ai_response_text = (response.text or "").strip().replace("```json", "").replace("```", "")
         try:
             element_text = json.loads(ai_response_text).get("element_text")
@@ -150,7 +151,7 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
     if "Ustalenia ogólne" in docs_content and docs_content["Ustalenia ogólne"]:
         prompt = f"Na podstawie tego dokumentu, jaki jest ogólny cel i charakter obszaru objętego tym planem?\n\nDokument:\n---\n{docs_content['Ustalenia ogólne']}"
         try:
-            results['ogolne']['Cel Planu'] = (generative_model.generate_content(prompt).text or "").strip()
+            results['ogolne']['Cel Planu'] = (client.models.generate_content(model=config.MODEL_NAME, contents=prompt).text or "").strip()
         except Exception as e:
             results['ogolne']['Cel Planu'] = f"Błąd AI: {e}"
 
@@ -189,20 +190,16 @@ Tekst dokumentu:
 {doc_szczegolowe[:25000]} 
 """
             try:
-                ai_text = (generative_model.generate_content(prompt).text or "").strip()
-                cleaned = ai_text.replace("```json", "").replace("```", "").strip()
+                response = client.models.generate_content(
+                    model=config.MODEL_NAME,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json"),
+                )
                 parsed = None
                 try:
-                    parsed = json.loads(cleaned)
+                    parsed = json.loads((response.text or "").strip())
                 except Exception:
-                    start = cleaned.find("{")
-                    end = cleaned.rfind("}")
-                    if start != -1 and end != -1 and end > start:
-                        possible_json = cleaned[start:end+1]
-                        try:
-                            parsed = json.loads(possible_json)
-                        except Exception:
-                            parsed = None
+                    parsed = None
                 default_val = "Brak konkretnych ustaleń w tym fragmencie"
                 fields = [
                     "Oznaczenie Terenu",
