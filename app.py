@@ -1725,44 +1725,30 @@ if st.session_state.show_search or st.session_state.map_center:
                     st.session_state.mpzp_analysis_started = True
 
             if st.session_state.mpzp_analysis_started and not st.session_state.get('analysis_results'):
-                st.info("Agent AI uruchomiony - pobieram dokumenty i analizuję...")
-                try:
-                    if st.session_state.selected_parcels:
-                        primary_parcel_id = st.session_state.selected_parcels[0]['ID Działki']
-                        
-                        def status_callback(type, message):
-                            if type == "info":
-                                st.info(message)
-                            elif type == "success":
-                                st.success(message)
-                            elif type == "warning":
-                                st.warning(message)
-                            elif type == "error":
-                                st.error(message)
-                            else:
+                with st.status("Agent AI uruchomiony - pobieram dokumenty i analizuję...", expanded=False) as agent_status:
+                    try:
+                        if st.session_state.selected_parcels:
+                            primary_parcel_id = st.session_state.selected_parcels[0]['ID Działki']
+                            def status_callback(msg_type, message):
+                                agent_status.update(label=message)
                                 st.write(message)
-                        
-                        results = mpzp_agent.run_ai_agent_flow(primary_parcel_id, status_callback=status_callback)
-                        
-                        if results:
-                            st.session_state.analysis_results = results
-
-
-                            st.success("Analiza zakończona!")
+                            result = mpzp_agent.run_ai_agent_flow(primary_parcel_id, status_callback=status_callback)
+                            if result:
+                                st.session_state.analysis_results = result
+                                agent_status.update(label="Analiza MPZP zakończona", state="complete", expanded=False)
+                            else:
+                                agent_status.update(label="Błąd: Nie udało się pobrać wyników analizy", state="error")
+                                st.session_state.mpzp_analysis_started = False
                         else:
-                            st.error("Nie udało się pobrać wyników analizy.")
+                            agent_status.update(label="Błąd nie wybano żadnych działek do analizy", state="error")
                             st.session_state.mpzp_analysis_started = False
-                    else:
-                        st.error("Nie wybrano żadnych działek do analizy.")
+                    except Exception as e:
+                        agent_status.update(label=f"Błąd krytyczny: {str(e)}", state="error")
                         st.session_state.mpzp_analysis_started = False
-                except Exception as e:
-                    st.error(f"Błąd podczas analizy: {str(e)}")
-                    st.session_state.mpzp_analysis_started = False
 
             if st.session_state.get('analysis_results'):
                 results = st.session_state.analysis_results
                 if 'analysis' in results and results['analysis']:
-                    st.success("Misja Agenta Analityka zakończona!")
                     if 'ogolne' in results['analysis'] and results['analysis']['ogolne']:
                         st.markdown(f"**Cel Planu:**");
                         st.info(f"{results['analysis']['ogolne'].get('Cel Planu', 'Brak danych.')}")
