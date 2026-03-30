@@ -25,6 +25,25 @@ def init_ai(api_key):
     except Exception as e:
         raise Exception(f"Nie udało się zainicjalizować Google AI: {e}")
 
+def call_gemini_with_retry(contents, config_params=None, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return client.models.generate_content(
+                model=config.MODEL_NAME,
+                contents=contents,
+                config=config_params,
+            )
+        except Exception as e:
+            error_msg = str(e)
+            if "503" in error_msg or "UNAVAILABLE" in error_msg:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 3
+                    print(f"Błąd 503 (serwer zajęty). Próba {attempt+1}/{max_retries}. Ponawiam za {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+            raise e
+
+
 def perform_ai_step(driver, goal_prompt, status_callback=None):
     if status_callback:
         status_callback("info", f" **Cel:** {goal_prompt}")
@@ -38,10 +57,7 @@ def perform_ai_step(driver, goal_prompt, status_callback=None):
 
     try:
         image_part = types.Part.from_bytes(data=screenshot_bytes, mime_type="image/png")
-        response = client.models.generate_content(
-            model=config.MODEL_NAME,
-            contents=[image_part, prompt]
-        )
+        response = call_gemini_with_retry(contents=[image_part, prompt])
         ai_response_text = (response.text or "").strip().replace("```json", "").replace("```", "")
         try:
             element_text = json.loads(ai_response_text).get("element_text")
@@ -151,7 +167,8 @@ def analyze_documents_with_ai(_links_tuple, parcel_id, status_callback=None):
     if "Ustalenia ogólne" in docs_content and docs_content["Ustalenia ogólne"]:
         prompt = f"Na podstawie tego dokumentu, jaki jest ogólny cel i charakter obszaru objętego tym planem?\n\nDokument:\n---\n{docs_content['Ustalenia ogólne']}"
         try:
-            results['ogolne']['Cel Planu'] = (client.models.generate_content(model=config.MODEL_NAME, contents=prompt).text or "").strip()
+            response = call_gemini_with_retry(contents=prompt)
+            results['ogolne']['Cel Planu'] = (response.text or "").strip()
         except Exception as e:
             results['ogolne']['Cel Planu'] = f"Błąd AI: {e}"
 
@@ -190,10 +207,9 @@ Tekst dokumentu:
 {doc_szczegolowe[:25000]} 
 """
             try:
-                response = client.models.generate_content(
-                    model=config.MODEL_NAME,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(response_mime_type="application/json"),
+                response = call_gemini_with_retry(
+                    contents = prompt,
+                    config_params = types.GenerateContentConfig(response_mime_type="application/json")
                 )
                 parsed = None
                 try:
