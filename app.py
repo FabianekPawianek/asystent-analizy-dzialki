@@ -603,15 +603,15 @@ st.markdown("""
     }
 
     /* Responsive h1 styling for mobile devices */
-    @media (max-width: 768px) {
+    @media (max-width: 1000px) {
         h1 {
-            font-size: 2.5rem !important;
+            font-size: 2rem !important;
         }
     }
 
     @media (max-width: 480px) {
         h1 {
-            font-size: 2rem !important;
+            font-size: 1.5rem !important;
         }
     }
 
