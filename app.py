@@ -589,6 +589,8 @@ st.markdown("""
     .block-container {
         padding-top: 3rem;
         padding-bottom: 3rem;
+        padding-left: 4rem;
+        padding-right: 4rem;
     }
 
     /* Headers with clean styling */
