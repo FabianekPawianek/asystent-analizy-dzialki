@@ -45,10 +45,20 @@ Hostowane na Hugging Face Spaces.
 - **Funkcja:** Autonomiczny agent AI (Gemini 3.0 Flash) nawigujący po geoportalu, wykorzystujący OCR (Tesseract) do analizy zeskanowanych PDF, z bezpiecznym wyodrębnianiem ID projektu z poświadczeń.
 - **Zastosowanie:** Automatyzacja i przyspieszenie żmudnego procesu analizy dokumentów planistycznych. Ekstrakcja kluczowych wskaźników i uwarunkowań w ułamku czasu wymaganego przy analizie manualnej, z lepszym bezpieczeństwem danych.
 
-## Uruchomienie lokalne
-- W folderze `.streamlit` stwórz plik `secrets.toml`:
-- .streamlit/secrets.toml
-- `GOOGLE_API_KEY = "twoje_api"`
+## Uruchomienie lokalne w terminalu
+1. `git clone https://github.com/FabianekPawianek/asystent-analizy-dzialki`
+2. `cd asystent-analizy-dzialki`
+3. `pip install -r requirements.txt`
+4. `# .streamlit/secrets.toml` -> `GOOGLE_API_KEY = "twój_klucz_api_tutaj"` *Plik API*
+5. **Instalacja TesseractOCR z obsługą polskiego języka**
+- *Windows* `winget install UB-Mannheim.TesseractOCR`
+-  *Windows* `Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata/raw/main/pol.traineddata" -OutFile "C:\Program Files\Tesseract-OCR\tessdata\pol.traineddata" #Polski pakiet językowy dla TesseractOCR`
+- *Linux* `sudo apt update`
+- *Linux* `sudo apt install tesseract-ocr tesseract-ocr-pol`
+- *Mac* `brew install tesseract`
+- *Mac* `brew install tesseract-lang`
+6. `streamlit run app.py`
+
 
 ## Więcej informacji
 
