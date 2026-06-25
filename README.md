@@ -1,14 +1,13 @@
 # Asystent Analizy Działki: Manifest dla Architektury Skoncentrowanej na Człowieku
 
-[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://fabianekpawianek-asystent-analizy-dzialki.hf.space)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-green)](https://fabianekpawianek-asystent-analizy-dzialki.hf.space)
+[![License: GPL v3](https://img.shields.io/badge/License-AGPLv3-green.svg)](https://www.gnu.org/licenses/agpl-3.0.en.html)
 [![Version](https://img.shields.io/badge/version-0.2.2-green.svg)](https://github.com/FabianekPawianek/asystent-analizy-dzialki/releases/tag/v0.2.2)
 
 **Wersja Beta 0.2.2 (Szczecin/Polska)**
 
-To narzędzie jest praktycznym zastosowaniem filozofii **Parametrycznego Humanizmu**. To protest przeciwko architekturze zysku i manifest na rzecz jakości życia, tworzonej dla ludzi, a nie dla arkuszy kalkulacyjnych.
-
-Aplikacja dostarcza obiektywnych, mierzalnych danych, które stanowią fundament świadomego projektowania i niepodważalny argument w rozmowach z inwestorami.
+Asystent Analizy Działki (AAD) to środowisko open-source i praktyczna egzekucja filozofii **Parametrycznego Humanizmu**. Celem projektu jest pełna demokratyzacja zaawansowanego procesu formotwórczego, który do tej pory pozostawał w hermetycznej domenie ekspertów.
+Odrzucamy standard, w którym potężna moc narzędzi obliczeniowych służy wyłącznie optymalizacji wskaźników powierzchniowych. AAD łączy precyzję danych LiDAR, algorytmy ray-tracingu oraz sztuczną inteligencję, aby oddać w ręce społeczeństwa – od mieszkańca po architekta – instrument do mierzalnej, obiektywnej weryfikacji jakości przestrzeni. Zamiast opierać się na subiektywnych odczuciach, wprowadzamy ludzką empatię i biologię bezpośrednio do kodu źródłowego jako twarde wytyczne projektowe.
 
 **Dowiedz się więcej o filozofii projektu w pliku [VISION.md](VISION.md)**
 
@@ -46,13 +45,10 @@ Hostowane na Hugging Face Spaces.
 - **Funkcja:** Autonomiczny agent AI (Gemini 3.0 Flash) nawigujący po geoportalu, wykorzystujący OCR (Tesseract) do analizy zeskanowanych PDF, z bezpiecznym wyodrębnianiem ID projektu z poświadczeń.
 - **Zastosowanie:** Automatyzacja i przyspieszenie żmudnego procesu analizy dokumentów planistycznych. Ekstrakcja kluczowych wskaźników i uwarunkowań w ułamku czasu wymaganego przy analizie manualnej, z lepszym bezpieczeństwem danych.
 
-## Wymagania
-
-Aplikacja wymaga Google AI Studio API key.
-
-Skonfiguruj secrets w ustawieniach Space:
-1. Przejdź do Settings → Repository secrets
-2. Dodaj secrets zgodnie z dokumentacją
+## Uruchomienie lokalne
+- W folderze `.streamlit` stwórz plik `secrets.toml`:
+- .streamlit/secrets.toml
+- `GOOGLE_API_KEY = "twoje_api"`
 
 ## Więcej informacji
 
