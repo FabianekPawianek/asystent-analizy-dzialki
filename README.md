@@ -9,7 +9,7 @@
 Asystent Analizy Działki (AAD) to środowisko open-source i praktyczna egzekucja filozofii **Parametrycznego Humanizmu**. Celem projektu jest pełna demokratyzacja zaawansowanego procesu formotwórczego, który do tej pory pozostawał w hermetycznej domenie ekspertów.
 Odrzucamy standard, w którym potężna moc narzędzi obliczeniowych służy wyłącznie optymalizacji wskaźników powierzchniowych. AAD łączy precyzję danych LiDAR, algorytmy ray-tracingu oraz sztuczną inteligencję, aby oddać w ręce społeczeństwa – od mieszkańca po architekta – instrument do mierzalnej, obiektywnej weryfikacji jakości przestrzeni. Zamiast opierać się na subiektywnych odczuciach, wprowadzamy ludzką empatię i biologię bezpośrednio do kodu źródłowego jako twarde wytyczne projektowe.
 
-**Dowiedz się więcej o filozofii projektu w pliku [VISION.md](VISION.md)**
+**Dowiedz się więcej o filozofii projektu w pliku [Manifest: Parametryczny Humanizm](Manifest%3A%20Parametryczny%20Humanizm.md)**
 
 ## Live Demo
 
