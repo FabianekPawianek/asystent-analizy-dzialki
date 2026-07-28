@@ -2,7 +2,7 @@ import os
 import platform
 
 LOCATION = "us-central1"
-MODEL_NAME = "gemini-3.1-flash-lite-preview"
+MODEL_NAME = "gemini-3.5-flash-lite"
 EMBEDDING_MODEL_NAME = "text-embedding-004"
 UNIVERSE_DOMAIN = "googleapis.com"
 
