@@ -25,13 +25,13 @@ import config
 import modules.geospatial as geospatial
 import modules.solar as solar
 import modules.visualization as visualization
-import modules.mpzp_agent as mpzp_agent
+import modules.pog_agent as pog_agent
 
 config.setup_tesseract()
 
 try:
     API_KEY = config.get_google_api_key(st.secrets)
-    mpzp_agent.init_ai(API_KEY)
+    pog_agent.init_ai(API_KEY)
 except Exception as e:
     st.error(str(e))
     st.info("Dodaj GOOGLE_API_KEY do pliku .env lub do Streamlit Secrets.")
@@ -1316,7 +1316,7 @@ if st.session_state.show_search or st.session_state.map_center:
             with analysis_col2:
                 st.markdown("""
                 <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(33,150,243,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
-                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza MPZP</h3>
+                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza POG (Plan Ogólny Gminy)</h3>
                     <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Google Gemini)</p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1325,8 +1325,8 @@ if st.session_state.show_search or st.session_state.map_center:
 
                 col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
                 with col_btn2:
-                    if st.button("Wybierz", key="select_mpzp", use_container_width=True):
-                        st.session_state.selected_analysis = "mpzp"
+                    if st.button("Wybierz", key="select_pog", use_container_width=True):
+                        st.session_state.selected_analysis = "pog"
 
         if st.session_state.selected_analysis == "solar":
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #FFC107, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)
@@ -1708,66 +1708,60 @@ if st.session_state.show_search or st.session_state.map_center:
 
 
 
-        elif st.session_state.selected_analysis == "mpzp":
+        elif st.session_state.selected_analysis == "pog":
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #2196F3, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)
 
             st.markdown("""
             <div style="text-align: center; margin-bottom: 2rem;">
-                <h2 style="font-size: 2rem;">Analiza MPZP (Agent AI)</h2>
-                <p style="color: #616161; font-size: 1rem;">Agent nawiguje po geoportalu i analizuje dokumenty planistyczne</p>
+                <h2 style="font-size: 2rem;">Analiza POG (Plan Ogólny Gminy)</h2>
+                <p style="color: #616161; font-size: 1rem;">Analiza POG przez AI</p>
             </div>
             """, unsafe_allow_html=True)
 
-            if 'mpzp_analysis_started' not in st.session_state:
-                st.session_state.mpzp_analysis_started = False
+            if 'pog_analysis_started' not in st.session_state:
+                st.session_state.pog_analysis_started = False
 
-            if not st.session_state.mpzp_analysis_started:
-                start_btn = st.button("Rozpocznij analizę AI", key="run_mpzp_analysis", use_container_width=True)
+            if not st.session_state.pog_analysis_started:
+                start_btn = st.button("Rozpocznij analizę AI", key="run_pog_analysis", use_container_width=True)
                 if start_btn:
-                    st.session_state.mpzp_analysis_started = True
+                    st.session_state.pog_analysis_started = True
 
-            if st.session_state.mpzp_analysis_started and not st.session_state.get('analysis_results'):
-                with st.status("Agent AI uruchomiony - pobieram dokumenty i analizuję...", expanded=False) as agent_status:
+            if st.session_state.pog_analysis_started and not st.session_state.get('analysis_results'):
+                with st.status("Agent AI uruchomiony - pobieram dane WFS i analizuję...", expanded=False) as agent_status:
                     try:
                         if st.session_state.selected_parcels:
-                            primary_parcel_id = st.session_state.selected_parcels[0]['ID Działki']
+                            selected_parcel = st.session_state.selected_parcels[0]
                             def status_callback(msg_type, message):
                                 agent_status.update(label=message)
                                 st.write(message)
-                            result = mpzp_agent.run_ai_agent_flow(primary_parcel_id, status_callback=status_callback)
-                            if result:
+                            result = pog_agent.run_pog_analysis_flow(selected_parcel, status_callback=status_callback)
+                            if result and result.get('status') == 'success':
                                 st.session_state.analysis_results = result
-                                agent_status.update(label="Analiza MPZP zakończona", state="complete", expanded=False)
+                                agent_status.update(label="Analiza POG zakończona", state="complete", expanded=False)
                             else:
                                 agent_status.update(label="Błąd: Nie udało się pobrać wyników analizy", state="error")
-                                st.session_state.mpzp_analysis_started = False
+                                st.session_state.pog_analysis_started = False
                         else:
-                            agent_status.update(label="Błąd nie wybano żadnych działek do analizy", state="error")
-                            st.session_state.mpzp_analysis_started = False
+                            agent_status.update(label="Błąd nie wybrano żadnych działek do analizy", state="error")
+                            st.session_state.pog_analysis_started = False
                     except Exception as e:
                         agent_status.update(label=f"Błąd krytyczny: {str(e)}", state="error")
-                        st.session_state.mpzp_analysis_started = False
+                        st.session_state.pog_analysis_started = False
 
             if st.session_state.get('analysis_results'):
                 results = st.session_state.analysis_results
-                if 'analysis' in results and results['analysis']:
-                    if 'ogolne' in results['analysis'] and results['analysis']['ogolne']:
-                        st.markdown(f"**Cel Planu:**");
-                        st.info(f"{results['analysis']['ogolne'].get('Cel Planu', 'Brak danych.')}")
-                    if 'szczegolowe' in results['analysis'] and results['analysis']['szczegolowe']:
-                        st.subheader(f"Teren: {results['analysis']['szczegolowe'].get('Oznaczenie Terenu', 'N/A')}")
-                        for key, value in results['analysis']['szczegolowe'].items():
-                            if key != 'Oznaczenie Terenu': st.markdown(f"**{key}:**"); st.info(f"{value}")
-                if 'links' in results and results['links']:
-                    docs = mpzp_agent.fetch_raw_docs_cached(tuple(sorted(results['links'].items())))
-                    if docs:
-                        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                        with col_btn2:
-                            for label, meta in docs.items():
-                                st.download_button(
-                                    label=f"Pobierz: {label}",
-                                    data=meta['content'],
-                                    file_name=meta.get('filename') or (label.replace(' ', '_') + '.pdf'),
-                                    use_container_width=True
-                                )
+                if isinstance(results, dict) and 'analysis' in results and results['analysis']:
+                    analysis_content = results['analysis']
+                    if isinstance(analysis_content, str):
+                        st.markdown(analysis_content)
+                    elif isinstance(analysis_content, dict):
+                        if 'ogolne' in analysis_content and analysis_content['ogolne']:
+                            st.markdown(f"**Cel Planu:**")
+                            st.info(f"{analysis_content['ogolne'].get('Cel Planu', 'Brak danych.')}")
+                        if 'szczegolowe' in analysis_content and analysis_content['szczegolowe']:
+                            st.subheader(f"Teren: {analysis_content['szczegolowe'].get('Oznaczenie Terenu', 'N/A')}")
+                            for key, value in analysis_content['szczegolowe'].items():
+                                if key != 'Oznaczenie Terenu':
+                                    st.markdown(f"**{key}:**")
+                                    st.info(f"{value}")
 
