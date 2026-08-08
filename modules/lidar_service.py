@@ -409,3 +409,89 @@ class LidarService:
         text = "\n".join(lines) + "\n"
         return text.encode('utf-8')
 
+    def export_solar_trimesh_to_obj(self, dsm_data, dtm_data, transform, parcel_geoms, grid_points_metric, sunlit_hours, max_hours=None, downsample_factor=2) -> bytes:
+        try:
+            from scipy.spatial import cKDTree
+        except ImportError:
+            logger.error("scipy is required for spatial matching in export_solar_trimesh_to_obj")
+            raise
+
+        try:
+            from modules.visualization import map_sunlit_hours_to_rgba
+        except ImportError:
+            from visualization import map_sunlit_hours_to_rgba
+
+        import shapely.wkt
+        from shapely.geometry.base import BaseGeometry
+
+        parsed_parcel_geoms = []
+        if parcel_geoms:
+            if not isinstance(parcel_geoms, (list, tuple)):
+                parcel_geoms = [parcel_geoms]
+            for g in parcel_geoms:
+                if isinstance(g, str):
+                    try:
+                        parsed_parcel_geoms.append(shapely.wkt.loads(g))
+                    except Exception:
+                        pass
+                elif isinstance(g, BaseGeometry):
+                    parsed_parcel_geoms.append(g)
+
+        if dtm_data is not None:
+            min_elevation = np.nanmin(dtm_data)
+            dsm_norm = dsm_data - min_elevation
+            dtm_norm = dtm_data - min_elevation
+        else:
+            min_elevation = np.nanmin(dsm_data)
+            dsm_norm = dsm_data - min_elevation
+            dtm_norm = dsm_norm
+
+        if parsed_parcel_geoms:
+            dsm_flattened = self.flatten_dsm_on_parcel(dsm_norm, dtm_norm, transform, parsed_parcel_geoms, fill_with_nan=False)
+        else:
+            dsm_flattened = dsm_norm
+
+        mesh = self.convert_dsm_to_trimesh(dsm_flattened, transform, downsample_factor=downsample_factor)
+        
+        n_faces = len(mesh.faces)
+        face_colors = np.full((n_faces, 4), [210, 210, 210, 255], dtype=np.uint8)
+
+        if grid_points_metric is not None and len(grid_points_metric) > 0 and sunlit_hours is not None and len(sunlit_hours) > 0:
+            grid_points_arr = np.asarray(grid_points_metric)
+            sunlit_hours_arr = np.asarray(sunlit_hours, dtype=np.float32)
+            
+            grid_xy = grid_points_arr[:, :2]
+            
+            face_centers_xy = np.mean(mesh.vertices[mesh.faces, :2], axis=1)
+            
+            tree = cKDTree(grid_xy)
+            distances, indices = tree.query(face_centers_xy)
+            
+            pixel_size = abs(transform.a) if hasattr(transform, 'a') else 1.0
+            max_dist = max(2.5, pixel_size * downsample_factor * 0.8)
+            
+            mask = distances <= max_dist
+            if np.any(mask):
+                matched_hours = sunlit_hours_arr[indices[mask]]
+                if max_hours is None:
+                    max_hours = float(np.nanmax(sunlit_hours_arr)) if len(sunlit_hours_arr) > 0 else 1.0
+                
+                matched_colors = map_sunlit_hours_to_rgba(matched_hours, min_val=0.0, max_val=max_hours, colormap='plasma', alpha=255)
+                face_colors[mask] = matched_colors
+
+        mesh.visual = trimesh.visual.color.ColorVisuals(mesh=mesh, face_colors=face_colors)
+
+        try:
+            unmerged = mesh.unmerge_vertices()
+            if unmerged is not None:
+                mesh = unmerged
+        except Exception as e:
+            logger.warning(f"Could not unmerge vertices: {e}")
+
+        buf = io.BytesIO()
+        mesh.export(file_obj=buf, file_type='obj')
+        return buf.getvalue()
+
+
+
+

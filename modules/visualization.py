@@ -33,6 +33,32 @@ def value_to_rgb(value, min_val, max_val, colormap='plasma'):
     rgba = cm.get_cmap(colormap)(norm_value)
     return [int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255), 200]
 
+def map_sunlit_hours_to_rgba(sunlit_hours, min_val=None, max_val=None, colormap='plasma', alpha=255):
+    sunlit_hours = np.asarray(sunlit_hours, dtype=np.float32)
+    if len(sunlit_hours) == 0:
+        return np.empty((0, 4), dtype=np.uint8)
+
+    if min_val is None:
+        min_val = float(np.nanmin(sunlit_hours))
+    if max_val is None:
+        max_val = float(np.nanmax(sunlit_hours))
+
+    if max_val == min_val:
+        norm_values = np.full_like(sunlit_hours, 0.5)
+    else:
+        norm_values = np.clip((sunlit_hours - min_val) / (max_val - min_val), 0.0, 1.0)
+
+    try:
+        cmap = cm.get_cmap(colormap)
+    except AttributeError:
+        import matplotlib.pyplot as plt
+        cmap = plt.get_cmap(colormap)
+
+    rgba_float = cmap(norm_values)
+    rgba_uint8 = (rgba_float * 255).astype(np.uint8)
+    rgba_uint8[:, 3] = alpha
+    return rgba_uint8
+
 def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
     if min_val == max_val:
         rgba = cm.get_cmap(colormap)(0.5)

@@ -391,6 +391,26 @@ def get_lidar_raw_xyz_bytes(bbox):
     dsm_data, transform, _, _ = get_cached_lidar_data(bbox)
     return LidarService().export_dsm_to_xyz_raw(dsm_data, transform)
 
+@st.cache_data(show_spinner=False)
+def get_solar_3d_obj_bytes(lidar_bbox, parcel_geoms_wkt, grid_points_metric, sunlit_hours, max_hours=None, downsample: int = 2):
+    try:
+        dsm_raw, transform, dtm_raw, _ = get_cached_lidar_data(lidar_bbox)
+        lidar_service = LidarService()
+        return lidar_service.export_solar_trimesh_to_obj(
+            dsm_data=dsm_raw,
+            dtm_data=dtm_raw,
+            transform=transform,
+            parcel_geoms=parcel_geoms_wkt,
+            grid_points_metric=grid_points_metric,
+            sunlit_hours=sunlit_hours,
+            max_hours=max_hours,
+            downsample_factor=downsample
+        )
+    except Exception as e:
+        logger.error(f"Error generating solar 3D OBJ bytes: {e}")
+        return b""
+
+
 
 
 # @st.cache_data
@@ -1614,7 +1634,25 @@ if st.session_state.show_search or st.session_state.map_center:
                                 except:
                                     continue
 
+                        parcel_geoms_wkt = []
+                        if parcel_poly_2180 is not None:
+                            parcel_geoms_wkt.append(parcel_poly_2180.wkt)
+                        elif st.session_state.selected_parcels:
+                            for p_data in st.session_state.selected_parcels:
+                                if 'Geometria' in p_data:
+                                    parcel_geoms_wkt.append(p_data['Geometria'])
+
+                        if not lidar_bbox and parcel_poly_2180 is not None:
+                            minx, miny, maxx, maxy = parcel_poly_2180.bounds
+                            buffer = analysis_radius
+                            lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
+
                         st.session_state.solar_analysis_results = {"results_df": results_df,
+                                                                   "grid_points_metric": grid_points_2180,
+                                                                   "sunlit_hours": average_sunlit_hours,
+                                                                   "max_hours": float(np.nanmax(average_sunlit_hours)) if len(average_sunlit_hours) > 0 else 1.0,
+                                                                   "lidar_bbox": lidar_bbox,
+                                                                   "parcel_geoms_wkt": parcel_geoms_wkt,
                                                                    "buildings_metric": buildings_data_metric,
                                                                    "sun_paths": sun_paths,
                                                                    "analemmas": analemmas,
@@ -1702,6 +1740,42 @@ if st.session_state.show_search or st.session_state.map_center:
                                  map_style=None)
 
                     st.pydeck_chart(r, use_container_width=True, height=600)
+
+                    if "lidar_bbox" in data and data["lidar_bbox"] is not None and "grid_points_metric" in data and "sunlit_hours" in data:
+                        if st.session_state.parcel_data and 'Adres' in st.session_state.parcel_data:
+                            address_str = st.session_state.parcel_data['Adres']
+                        elif st.session_state.selected_parcels and 'Adres' in st.session_state.selected_parcels[0]:
+                            address_str = st.session_state.selected_parcels[0]['Adres']
+                        elif st.session_state.selected_parcels and 'ID Działki' in st.session_state.selected_parcels[0]:
+                            address_str = st.session_state.selected_parcels[0]['ID Działki']
+                        else:
+                            address_str = "Analiza_Dzialki"
+
+                        clean_addr = "".join(c for c in address_str if c.isalnum() or c in (' ', '_', '-')).rstrip().replace(" ", "_")
+                        if len(clean_addr) > 50:
+                            clean_addr = clean_addr[:50]
+
+                        current_date = datetime.now().strftime("%Y%m%d")
+                        solar_obj_filename = f"Model_3D_Naslonecznienie_{clean_addr}_{current_date}.obj"
+
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                        with col_btn2:
+                            solar_obj_data = get_solar_3d_obj_bytes(
+                                data["lidar_bbox"],
+                                data.get("parcel_geoms_wkt", []),
+                                data["grid_points_metric"],
+                                data["sunlit_hours"],
+                                data.get("max_hours")
+                            )
+                            if solar_obj_data:
+                                st.download_button(
+                                    label="Pobierz model 3D nasłonecznienia (.obj)",
+                                    data=solar_obj_data,
+                                    file_name=solar_obj_filename,
+                                    mime="model/obj",
+                                    use_container_width=True
+                                )
                 else:
                     st.warning("Nie udało się stworzyć siatki analitycznej dla tej działki.")
 
