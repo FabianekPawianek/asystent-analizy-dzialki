@@ -41,9 +41,9 @@ Hostowane na Hugging Face Spaces.
 <br>
 <sub>*Przykładowa wizualizacja: Widok Szczecina w promieniu 1000m od Filharmonii. Model wygenerowany z surowych danych LiDAR (Geoportal) przedstawiający rzeczywistą rzeźbę terenu i zabudowę.*</sub>
 
-### 4. Analiza MPZP z AI
-- **Funkcja:** Autonomiczny agent AI (Gemini 3.0 Flash) nawigujący po geoportalu, wykorzystujący OCR (Tesseract) do analizy zeskanowanych PDF, z bezpiecznym wyodrębnianiem ID projektu z poświadczeń.
-- **Zastosowanie:** Automatyzacja i przyspieszenie żmudnego procesu analizy dokumentów planistycznych. Ekstrakcja kluczowych wskaźników i uwarunkowań w ułamku czasu wymaganego przy analizie manualnej, z lepszym bezpieczeństwem danych.
+### 4. Ogólnokrajowa Analiza POG (Planu Ogólnego Gminy) z AI
+- **Funkcja:** Automatyczne pobieranie wektorowych danych przestrzennych przez usługi WFS dla dowolnej działki w Polsce. Agent AI wyznacza strefę planistyczną, sprawdza status OUZ (Obszaru Uzupełnienia Zabudowy) i wskaźniki urbanistyczne, generując przejrzystą Kartę Planistyczną POG z wytycznymi architektonicznymi.
+- **Zastosowanie:** Błyskawiczna weryfikacja potencjału inwestycyjnego działki w dowolnej gminie w Polsce. Automatyczne ostrzeganie przed brakiem możliwości wydania Warunków Zabudowy (WZ) oraz eliminacja ryzyka projektowania na terenach wyłączonych z zabudowy.
 
 ## Uruchomienie lokalne w terminalu
 1. `git clone https://github.com/FabianekPawianek/asystent-analizy-dzialki`
