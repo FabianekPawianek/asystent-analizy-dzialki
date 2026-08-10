@@ -725,3 +725,34 @@ def create_solar_analysis_layers(
         layers.extend([compass_main_layer, compass_secondary_layer])
 
     return layers, buildings_data
+
+
+def create_generative_volume_layer(massing_points, voxel_size_m=2.0):
+    if not massing_points:
+        return None
+
+    df = pd.DataFrame(massing_points)
+    if df.empty or 'position' not in df.columns or 'height' not in df.columns:
+        return None
+
+    import math
+    radius_meters = (voxel_size_m / math.sqrt(2)) * 0.95
+
+    return pdk.Layer(
+        "ColumnLayer",
+        data=df,
+        get_position="position",
+        get_elevation="height",
+        radius=radius_meters,
+        disk_resolution=4,
+        angle=45,
+        extruded=True,
+        flat_shading=True,
+        get_fill_color="color",
+        get_line_color=[160, 210, 170],
+        elevation_scale=1,
+        pickable=True,
+        auto_highlight=True,
+        material=False,
+    )
+

@@ -26,6 +26,7 @@ import modules.geospatial as geospatial
 import modules.solar as solar
 import modules.visualization as visualization
 import modules.pog_agent as pog_agent
+import modules.generative_massing as generative_massing
 
 config.setup_tesseract()
 
@@ -945,7 +946,7 @@ if not st.session_state.show_search and not st.session_state.map_center:
         <h1 style="font-size: 4rem; margin-bottom: 1rem; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
             Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Szczecin/Polska • Wersja Beta 0.2.2</p>
+        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Polska • Wersja Beta 0.2.2</p>
         <p style="font-size: 1rem; color: #616161; margin-bottom: 3rem;">
             Autor: Fabian Korycki | Powered by <span style="color: #28a745; font-weight: 600;">Google Gemini AI </span> & <span style="color: #28a745; font-weight: 600;">Geoportal.gov.pl </span>
         </p>
@@ -971,7 +972,7 @@ if st.session_state.show_search or st.session_state.map_center:
         <h1 style="font-size: 4rem; margin: 0; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
             Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1rem; color: #616161; margin: 0.5rem 0 0 0;">Szczecin/Polska • Wersja Beta 0.2.2</p>
+        <p style="font-size: 1rem; color: #616161; margin: 0.5rem 0 0 0;">Polska • Wersja Beta 0.2.2</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -995,7 +996,7 @@ if st.session_state.show_search or st.session_state.map_center:
             <h2 style="background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 600;">
                 Wybierz działki na mapie
             </h2>
-            <p style="color: #616161; font-size: 1rem;">Kliknij na działki, aby je zaznaczyć/odznaczyć. Wybierz analizę z dołu strony.</p>
+            <p style="color: #616161; font-size: 1rem;">Kliknij na działki, aby je zaznaczyć/odznaczyć.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1080,7 +1081,7 @@ if st.session_state.show_search or st.session_state.map_center:
             view_3d_source = st.radio(
                 "Wybierz źródło modelu 3D:",
                 options=["OSM (Budynki)", "LiDAR (Geoportal)"],
-                index=0,
+                index=1,
                 horizontal=True,
                 key="view_3d_source_radio",
                 help="OSM pokazuje budynki z OpenStreetMap. LiDAR pokazuje dokładny model terenu z chmurą punktów."
@@ -1308,21 +1309,21 @@ if st.session_state.show_search or st.session_state.map_center:
         if st.session_state.selected_parcels:
             st.markdown("""
             <div style="text-align: center; margin: 10rem 0 3rem 0;">
-                <h2 style="font-size: 2.2rem; margin-bottom: 0.5rem;">Wybierz typ analizy</h2>
-                <p style="color: #616161; font-size: 1.05rem;">Kliknij jedną z opcji, aby rozpocząć szczegółową analizę</p>
+                <h2 style="font-size: 2.2rem; margin-bottom: 0.5rem;">Dostępne narzędzia</h2>
+                <p style="color: #616161; font-size: 1.05rem;">Kliknij jedną z opcji aby rozpocząć</p>
             </div>
             """, unsafe_allow_html=True)
             
-            analysis_col1, analysis_col2 = st.columns(2, gap="large")
+            analysis_col1, analysis_col2, analysis_col3 = st.columns(3, gap="medium")
 
             if 'selected_analysis' not in st.session_state:
                 st.session_state.selected_analysis = None
 
             with analysis_col1:
                 st.markdown("""
-                <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(255,193,7,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
-                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza Nasłonecznienia</h3>
-                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
+                <div style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
+                    <h3 style="font-size: 1.6rem; margin-bottom: 1rem; color: #424242;">Analiza Nasłonecznienia</h3>
+                    <p style="color: #616161; font-size: 0.95rem; margin-bottom: 0; line-height: 1.6;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1335,9 +1336,9 @@ if st.session_state.show_search or st.session_state.map_center:
 
             with analysis_col2:
                 st.markdown("""
-                <div style="text-align: center; padding: 4rem 2rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 16px rgba(33,150,243,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
-                    <h3 style="font-size: 1.8rem; margin-bottom: 1.5rem; color: #424242;">Analiza POG (Plan Ogólny Gminy)</h3>
-                    <p style="color: #616161; font-size: 1rem; margin-bottom: 0; line-height: 1.6;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Google Gemini)</p>
+                <div style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
+                    <h3 style="font-size: 1.6rem; margin-bottom: 1rem; color: #424242;">Analiza POG (Plan Ogólny Gminy)</h3>
+                    <p style="color: #616161; font-size: 0.95rem; margin-bottom: 0; line-height: 1.6;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Google Gemini)</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1347,6 +1348,21 @@ if st.session_state.show_search or st.session_state.map_center:
                 with col_btn2:
                     if st.button("Wybierz", key="select_pog", use_container_width=True):
                         st.session_state.selected_analysis = "pog"
+
+            with analysis_col3:
+                st.markdown("""
+                <div style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(224,109,83,0.08) 0%, rgba(200,80,60,0.08) 100%); border-radius: 20px; border: 2px solid rgba(224,109,83,0.3); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
+                    <h3 style="font-size: 1.6rem; margin-bottom: 1rem; color: #424242;">Koncepcja Kubaturowa</h3>
+                    <p style="color: #616161; font-size: 0.95rem; margin-bottom: 0; line-height: 1.6;">Generuje humanistyczną bryłę 3D dopasowaną do słońca, POG i twoich życzeń</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
+
+                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                with col_btn2:
+                    if st.button("Wybierz", key="select_massing", use_container_width=True):
+                        st.session_state.selected_analysis = "massing"
 
         if st.session_state.selected_analysis == "solar":
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #FFC107, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)
@@ -1364,7 +1380,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 data_source = st.radio(
                     "Źródło danych 3D:",
                     options=["OSM (Budynki)", "LiDAR (Geoportal)"],
-                    index=0,
+                    index=1,
                     horizontal=True,
                     key="solar_data_source",
                     help="Wybierz źródło danych do analizy cienia. OSM jest szybsze, ale mniej dokładne. LiDAR uwzględnia teren, drzewa i kształty dachów."
@@ -1373,8 +1389,8 @@ if st.session_state.show_search or st.session_state.map_center:
             with col_rad_solar:
                 radius_solar = st.radio(
                     "Promień analizy (metry):",
-                    options=[250, 500, 1000],
-                    index=1,
+                    options=[100, 250, 500],
+                    index=0,
                     horizontal=True,
                     key="radius_solar",
                     help="Określa zasięg pobieranych danych wokół działki. Większy promień = dokładniejsze cienie, ale dłuższa analiza."
@@ -1429,7 +1445,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 hour_range = params['hour_range']
                 sampling_freq = params['sampling_freq']
                 data_source = params['data_source']
-                analysis_radius = params.get('analysis_radius', 500)
+                analysis_radius = params.get('analysis_radius', 100)
 
                 from shapely.geometry import Polygon as ShapelyPolygon
                 from shapely.ops import unary_union
@@ -1701,6 +1717,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         show_buildings=not is_lidar,
                         scale_factor=diagram_scale
                     )
+                    st.session_state['solar_analysis_surface_layer'] = layers
                     
                     sun_positions_wgs84 = []
                     transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
@@ -1733,7 +1750,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.markdown(legend_html, unsafe_allow_html=True)
 
                     display_map_center = data.get('analysis_map_center', (53.4285, 14.5511))
-                    
+
                     r = pdk.Deck(layers=layers,
                                  initial_view_state=pdk.ViewState(latitude=display_map_center[0], longitude=display_map_center[1],
                                                                   zoom=17.5, pitch=50, bearing=0, max_pitch=85),
@@ -1838,4 +1855,141 @@ if st.session_state.show_search or st.session_state.map_center:
                                 if key != 'Oznaczenie Terenu':
                                     st.markdown(f"**{key}:**")
                                     st.info(f"{value}")
+
+        elif st.session_state.selected_analysis == "massing":
+            st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #E06D53, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)
+
+            st.markdown("""
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <h2 style="font-size: 2rem; color: #E06D53;">Generatywna Koncepcja Kubaturowa</h2>
+                <p style="color: #616161; font-size: 1rem;">Humanistyczna generacja koncepcji 3D w zgodzie z nasłonecznieniem i POG</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            pog_ready = bool(st.session_state.get('analysis_results'))
+            solar_ready = bool(st.session_state.get('solar_analysis_results'))
+
+            if not (pog_ready and solar_ready):
+                st.warning("Aby wygenerować koncepcję kubaturową, przeprowadź najpierw Analizę POG oraz Analizę Nasłonecznienia.")
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    if not solar_ready:
+                        if st.button("Przejdź do Analizy Nasłonecznienia", key="nav_to_solar", use_container_width=True):
+                            st.session_state.selected_analysis = "solar"
+                            st.rerun()
+                    else:
+                        st.success("✓ Analiza Nasłonecznienia wykonana")
+                with col_p2:
+                    if not pog_ready:
+                        if st.button("Przejdź do Analizy POG", key="nav_to_pog", use_container_width=True):
+                            st.session_state.selected_analysis = "pog"
+                            st.rerun()
+                    else:
+                        st.success("✓ Analiza POG wykonana")
+            else:
+                user_massing_prompt = st.text_area(
+                    "Opisz swoje życzenia projektowe (np. dom jednorodzinny, poranne słońce na tarasie)",
+                    key="user_massing_prompt_input",
+                    height=100
+                )
+
+                col_m1, col_m2, col_m3 = st.columns([1, 2, 1])
+                with col_m2:
+                    run_massing_btn = st.button("Wygeneruj Koncepcję Kubaturową AI", key="run_generative_massing_btn", use_container_width=True)
+
+                if run_massing_btn:
+                    st.session_state.user_massing_prompt_value = user_massing_prompt
+                    with st.spinner("Generuję humanistyczną koncepcję kubaturową 3D..."):
+                        parcel_poly_2180 = None
+                        if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
+                            coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
+                            parcel_poly_2180 = Polygon(coords_2180)
+                        elif st.session_state.selected_parcels:
+                            coords_2180 = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
+                            parcel_poly_2180 = Polygon(coords_2180)
+
+                        if parcel_poly_2180 is not None:
+                            pog_data = st.session_state.get('analysis_results')
+                            solar_data = st.session_state.get('solar_analysis_results')
+                            
+                            solar_grid_points = solar_data.get('grid_points_metric') if (solar_data and isinstance(solar_data, dict)) else None
+                            sunlit_hours = solar_data.get('sunlit_hours') if (solar_data and isinstance(solar_data, dict)) else None
+                            
+                            minx, miny, maxx, maxy = parcel_poly_2180.bounds
+                            lidar_bbox = (minx - 100, miny - 100, maxx + 100, maxy + 100)
+                            
+                            try:
+                                dsm_data, transform, dtm_data, _ = get_cached_lidar_data(lidar_bbox)
+                            except Exception:
+                                dtm_data = None
+                                transform = None
+
+                            intent_info = generative_massing.sanitize_user_intent(user_massing_prompt, pog_data_dict=pog_data, parcel_area_m2=float(parcel_poly_2180.area))
+                            if intent_info.get("anti_max_pum_triggered") and intent_info.get("warning_message"):
+                                st.info(intent_info["warning_message"])
+                            elif intent_info.get("design_intent_summary"):
+                                st.info(f"Koncepcja AI: {intent_info['design_intent_summary']}")
+
+                            massing_points = generative_massing.generate_massing_volume(
+                                pog_data_dict=pog_data,
+                                solar_grid_points=solar_grid_points,
+                                sunlit_hours=sunlit_hours,
+                                parcel_geometry=parcel_poly_2180,
+                                dtm_data=dtm_data,
+                                transform=transform,
+                                user_intent=user_massing_prompt
+                            )
+                            
+                            st.session_state.generative_massing_points = massing_points
+                            st.session_state.generative_intent_info = intent_info
+                            
+                            if massing_points:
+                                st.success(f"Pomyślnie wygenerowano koncepcję kubaturową 3D ({len(massing_points)} woksali).")
+                            else:
+                                st.warning("Nie udało się wygenerować woksali dla tej działki.")
+                        else:
+                            st.error("Nie wybrano działki do generowania koncepcji.")
+
+            if st.session_state.get('generative_massing_points'):
+                massing_points = st.session_state.generative_massing_points
+                
+                all_layers = list(st.session_state.get('lidar_point_cloud_layer', []))
+                
+                if st.session_state.get('solar_analysis_surface_layer'):
+                    solar_surface = st.session_state['solar_analysis_surface_layer']
+                    if isinstance(solar_surface, list):
+                        all_layers.extend(solar_surface)
+                    else:
+                        all_layers.append(solar_surface)
+                        
+                massing_layer = visualization.create_generative_volume_layer(massing_points)
+                if massing_layer:
+                    all_layers.append(massing_layer)
+
+                display_map_center = (53.4285, 14.5511)
+                solar_res = st.session_state.get('solar_analysis_results')
+                if solar_res and isinstance(solar_res, dict) and 'analysis_map_center' in solar_res:
+                    display_map_center = solar_res['analysis_map_center']
+                elif st.session_state.get('analysis_map_center'):
+                    display_map_center = st.session_state.get('analysis_map_center')
+
+                view_state = pdk.ViewState(
+                    latitude=display_map_center[0],
+                    longitude=display_map_center[1],
+                    zoom=17.5,
+                    pitch=50,
+                    bearing=30,
+                    max_pitch=85
+                )
+
+                massing_deck = pdk.Deck(
+                    layers=all_layers,
+                    initial_view_state=view_state,
+                    map_style=None,
+                )
+
+                st.session_state['generative_massing_deck'] = massing_deck
+                st.pydeck_chart(st.session_state['generative_massing_deck'], use_container_width=True, height=750)
+
+
 
