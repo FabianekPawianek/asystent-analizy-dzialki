@@ -314,7 +314,7 @@ def get_cached_lidar_data(bbox):
     return dsm_data, transform, dtm_data, dtm_transform
 
 @st.cache_data(show_spinner=False)
-def prepare_lidar_geometry(dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric, calc_downsample: int = 4, ignore_trees: bool = False, lidar_bbox: tuple = None):
+def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parcel_geoms_wkt, grid_points_metric, calc_downsample: int = 4, ignore_trees: bool = False, lidar_bbox: tuple = None):
     parcel_geoms = [wkt.loads(g) for g in parcel_geoms_wkt]
     
     lidar_service = LidarService()
