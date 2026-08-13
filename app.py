@@ -319,8 +319,8 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
     
     lidar_service = LidarService()
 
-    dsm_data = lidar_service.apply_circular_mask(dsm_data)
-    dtm_data = lidar_service.apply_circular_mask(dtm_data)
+    dsm_data = lidar_service.apply_circular_mask(dsm_data, _transform)
+    dtm_data = lidar_service.apply_circular_mask(dtm_data, _dtm_transform)
     
     min_elevation = np.nanmin(dtm_data)
     dsm_data = dsm_data - min_elevation
@@ -329,7 +329,7 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
     is_building_mask = None
     if lidar_bbox:
         building_polygons = solar.fetch_building_polygons(lidar_bbox)
-        is_building_mask = solar.create_building_mask(dsm_data.shape, transform, building_polygons, dsm_data=dsm_data, dtm_data=dtm_data)
+        is_building_mask = solar.create_building_mask(dsm_data.shape, _transform, building_polygons, dsm_data=dsm_data, dtm_data=dtm_data)
 
     print(f"DEBUG SOLAR: Running simulation with ignore_trees={ignore_trees}.", flush=True)
 
@@ -343,14 +343,14 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
     dtm_for_viz = dtm_data.copy()
 
     if parcel_geoms:
-        dsm_for_calc = lidar_service.flatten_dsm_on_parcel(dsm_for_calc, dtm_data, transform, parcel_geoms, fill_with_nan=False)
-        dsm_for_viz = lidar_service.flatten_dsm_on_parcel(dsm_for_viz, dtm_data, transform, parcel_geoms, fill_with_nan=True)
-        dtm_for_viz = lidar_service.flatten_dsm_on_parcel(dtm_for_viz, dtm_data, transform, parcel_geoms, fill_with_nan=True)
+        dsm_for_calc = lidar_service.flatten_dsm_on_parcel(dsm_for_calc, dtm_data, _transform, parcel_geoms, fill_with_nan=False)
+        dsm_for_viz = lidar_service.flatten_dsm_on_parcel(dsm_for_viz, dtm_data, _transform, parcel_geoms, fill_with_nan=True)
+        dtm_for_viz = lidar_service.flatten_dsm_on_parcel(dtm_for_viz, dtm_data, _transform, parcel_geoms, fill_with_nan=True)
     
     lidar_layers = []
     
     pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
-        dsm_for_viz, dtm_for_viz, transform, subsample=1,
+        dsm_for_viz, dtm_for_viz, _transform, subsample=1,
         is_building_mask=is_building_mask,
         parcel_polygons_2180=parcel_geoms
     )
@@ -358,7 +358,7 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
         lidar_layers.append(pillars_layer)
     
     surface_layer, _, _ = visualization.create_lidar_square_surface_layer(
-        dsm_for_viz, transform, subsample=1,
+        dsm_for_viz, _transform, subsample=1,
         parcel_polygons_2180=parcel_geoms,
         is_building_mask=is_building_mask,
         dtm_data=dtm_for_viz
@@ -367,9 +367,9 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
         lidar_layers.append(surface_layer)
     
     print(f"DEBUG: Creating Trimesh with downsample_factor={calc_downsample} (ignore_trees={ignore_trees})", flush=True)
-    scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, transform, downsample_factor=calc_downsample)
+    scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, _transform, downsample_factor=calc_downsample)
     
-    z_values = lidar_service.sample_height_for_points(dtm_data, dtm_transform, grid_points_metric[:, :2])
+    z_values = lidar_service.sample_height_for_points(dtm_data, _dtm_transform, grid_points_metric[:, :2])
     grid_points_metric[:, 2] = z_values + 0.5
     
     return scene, grid_points_metric, lidar_layers
