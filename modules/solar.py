@@ -5,9 +5,133 @@ import trimesh
 import psutil
 import os
 import gc
+import requests
+import rasterio.features
+from pyproj import Transformer
 from shapely.geometry import Polygon, Point
 from shapely.prepared import prep
 from datetime import datetime
+
+
+import io
+import geopandas as gpd
+import xml.etree.ElementTree as ET
+
+
+def fetch_building_polygons(bbox_epsg2180: tuple) -> list:
+    minx, miny, maxx, maxy = bbox_epsg2180
+    center_x = (minx + maxx) / 2.0
+    center_y = (miny + maxy) / 2.0
+    
+    transformer = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+    center_lon, center_lat = transformer.transform(center_x, center_y)
+    
+    radius_m = int(max(maxx - minx, maxy - miny) / 2.0 + 150)
+    
+    query = f"""
+    [out:json][timeout:30];
+    (
+      way["building"](around:{radius_m}, {center_lat:.6f}, {center_lon:.6f});
+      relation["building"](around:{radius_m}, {center_lat:.6f}, {center_lon:.6f});
+    );
+    out body;
+    >;
+    out skel qt;
+    """
+    headers = {
+        'User-Agent': 'AsystentAnalizyDzialki/2.2 (PracaDyplomowa)',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+    }
+    endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
+    ]
+    
+    building_polygons_2180 = []
+    transformer_to_2180 = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
+    
+    for url in endpoints:
+        try:
+            resp = requests.post(url, data={'data': query}, headers=headers, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                elements = data.get("elements", [])
+                nodes = {elem["id"]: (elem["lon"], elem["lat"]) for elem in elements if elem.get("type") == "node"}
+                
+                for elem in elements:
+                    if elem.get("type") == "way" and "building" in elem.get("tags", {}):
+                        way_nodes = elem.get("nodes", [])
+                        coords_4326 = [nodes[nid] for nid in way_nodes if nid in nodes]
+                        if len(coords_4326) >= 3:
+                            lons, lats = zip(*coords_4326)
+                            xs, ys = transformer_to_2180.transform(lons, lats)
+                            poly = Polygon(list(zip(xs, ys)))
+                            if not poly.is_valid:
+                                poly = poly.buffer(0)
+                            if not poly.is_empty and poly.area > 5.0:
+                                building_polygons_2180.append(poly)
+                if building_polygons_2180:
+                    print(f"DEBUG BUILDINGS OVERPASS [{url}]: Successfully fetched {len(building_polygons_2180)} polygons.", flush=True)
+                    return building_polygons_2180
+        except Exception as e:
+            print(f"DEBUG Overpass endpoint {url} failed: {e}", flush=True)
+            continue
+            
+    print(f"DEBUG BUILDINGS: Fallback to elevation difference mask (DSM - DTM > 2.8m).", flush=True)
+    return building_polygons_2180
+
+
+fetch_osm_building_polygons = fetch_building_polygons
+
+
+def create_building_mask(dsm_shape: tuple, transform, building_polygons_2180: list, dsm_data=None, dtm_data=None) -> np.ndarray:
+
+    rows, cols = dsm_shape
+    
+    if not building_polygons_2180:
+        if dsm_data is not None and dtm_data is not None:
+            print("DEBUG MASK: No building polygons fetched from APIs. Using elevation fallback (DSM - DTM > 2.8m).", flush=True)
+            diff = dsm_data - dtm_data
+            mask = (diff > 2.8) & (~np.isnan(diff))
+            print(f"DEBUG MASK: Fallback building mask active on {np.sum(mask)} / {mask.size} pixels ({np.sum(mask)/mask.size*100:.1f}% area).", flush=True)
+            return mask
+        else:
+            mask = np.zeros((rows, cols), dtype=bool)
+            print(f"DEBUG MASK: Building mask active on 0 / {mask.size} pixels (0.0% area).", flush=True)
+            return mask
+        
+    try:
+        shapes = [(poly, True) for poly in building_polygons_2180 if poly and not poly.is_empty and poly.is_valid]
+        if not shapes:
+            if dsm_data is not None and dtm_data is not None:
+                print("DEBUG MASK: No valid building shapes. Using elevation fallback (DSM - DTM > 2.8m).", flush=True)
+                diff = dsm_data - dtm_data
+                mask = (diff > 2.8) & (~np.isnan(diff))
+                print(f"DEBUG MASK: Fallback building mask active on {np.sum(mask)} / {mask.size} pixels ({np.sum(mask)/mask.size*100:.1f}% area).", flush=True)
+                return mask
+            mask = np.zeros((rows, cols), dtype=bool)
+            print(f"DEBUG MASK: Building mask active on 0 / {mask.size} pixels (0.0% area).", flush=True)
+            return mask
+            
+        mask_uint8 = rasterio.features.rasterize(
+            shapes=shapes,
+            out_shape=(rows, cols),
+            transform=transform,
+            fill=0,
+            default_value=1,
+            dtype='uint8'
+        )
+        mask = mask_uint8.astype(bool)
+        print(f"DEBUG BUILDINGS: Successfully created building mask with {len(building_polygons_2180)} polygons.", flush=True)
+        print(f"DEBUG MASK: Building mask active on {np.sum(mask)} / {mask.size} pixels ({np.sum(mask)/mask.size*100:.1f}% area).", flush=True)
+        return mask
+    except Exception as e:
+        print(f"Error creating building mask: {e}", flush=True)
+        if dsm_data is not None and dtm_data is not None:
+            diff = dsm_data - dtm_data
+            return (diff > 2.8) & (~np.isnan(diff))
+        return np.zeros((rows, cols), dtype=bool)
 
 def calculate_sun_positions(lat: float, lon: float, date: datetime.date, hour_range: tuple, freq: str = "1H", tz='Europe/Warsaw'):
     start_hour, end_hour = hour_range

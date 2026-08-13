@@ -232,8 +232,9 @@ def create_lidar_lines_layer(dsm_data, dtm_data, transform, subsample=3):
     )
 
 
-def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3, custom_colors=None):
+def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3, custom_colors=None, is_building_mask=None, parcel_polygons_2180=None):
     import math
+    from matplotlib.path import Path
     
     pixel_size = abs(transform.a)
     rows, cols = dsm_data.shape
@@ -275,10 +276,30 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
     n = len(lons)
     positions = np.column_stack((lons, lats, z_dtm))
 
+    b_mask_sub = None
+    if is_building_mask is not None and is_building_mask.shape == dsm_data.shape:
+        b_mask_sub = is_building_mask[::final_step, ::final_step][mask]
+
+    inside_parcel = np.zeros(n, dtype=bool)
+    if parcel_polygons_2180:
+        points_2180 = np.column_stack((xs, ys))
+        for poly in parcel_polygons_2180:
+            if poly is not None and poly.is_valid:
+                poly_coords = np.array(poly.exterior.coords)
+                path = Path(poly_coords)
+                inside_parcel |= path.contains_points(points_2180)
+
     if custom_colors is not None and len(custom_colors) == n:
         colors = [list(c) for c in custom_colors]
     else:
-        colors = [[160, 210, 170]] * n
+        colors = []
+        for i in range(n):
+            if inside_parcel[i]:
+                colors.append([190, 240, 200])  # Bright mint green for target parcel
+            elif b_mask_sub is not None and b_mask_sub[i]:
+                colors.append([130, 180, 140])  # Darker sage green for buildings
+            else:
+                colors.append([160, 210, 170])  # Standard light green for surrounding terrain
 
     pillar_data = pd.DataFrame({
         'position': positions.tolist(),
@@ -307,7 +328,7 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
     return layer, mask
 
 
-def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_polygons_2180=None, custom_colors=None):
+def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_polygons_2180=None, custom_colors=None, is_building_mask=None, dtm_data=None):
     from matplotlib.path import Path
     
     pixel_size = abs(transform.a)
@@ -325,12 +346,17 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
     c_idx = np.arange(0, cols, final_step)
     c_grid, r_grid = np.meshgrid(c_idx, r_idx)
     
-    xs, ys = rasterio.transform.xy(transform, r_grid.flatten(), c_grid.flatten())
+    xs_all, ys_all = rasterio.transform.xy(transform, r_grid.flatten(), c_grid.flatten())
     z_vals = dsm_sub.flatten()
     
+    if dtm_data is not None and dtm_data.shape == dsm_data.shape:
+        dtm_sub = dtm_data[::final_step, ::final_step]
+        dtm_flat = dtm_sub.flatten()
+        z_vals = np.where(np.isnan(z_vals), dtm_flat, z_vals)
+
     valid_mask = ~np.isnan(z_vals)
-    xs = np.array(xs)[valid_mask]
-    ys = np.array(ys)[valid_mask]
+    xs = np.array(xs_all)[valid_mask]
+    ys = np.array(ys_all)[valid_mask]
     z_vals = z_vals[valid_mask]
     
     n_points = len(xs)
@@ -361,6 +387,10 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
     polygons[:, 3, 1] = lats + lat_off      # NW - lat
     polygons[:, 3, 2] = z_vals              # NW - z
     
+    b_mask_sub = None
+    if is_building_mask is not None and is_building_mask.shape == dsm_data.shape:
+        b_mask_sub = is_building_mask[::final_step, ::final_step].flatten()[valid_mask]
+
     if custom_colors is not None and len(custom_colors) == n_points:
         colors = [list(c) for c in custom_colors]
     else:
@@ -373,11 +403,14 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
                     path = Path(poly_coords)
                     inside_parcel |= path.contains_points(points_2180)
         
-        colors = np.where(
-            inside_parcel[:, np.newaxis],
-            np.array([[130, 180, 140]]),
-            np.array([[160, 210, 170]])
-        ).tolist()
+        colors = []
+        for i in range(n_points):
+            if inside_parcel[i]:
+                colors.append([190, 240, 200])  # Bright mint green for target parcel
+            elif b_mask_sub is not None and b_mask_sub[i]:
+                colors.append([130, 180, 140])  # Darker sage green for buildings
+            else:
+                colors.append([160, 210, 170])  # Standard light green for surrounding terrain
     
     surface_data = pd.DataFrame({
         'polygon': [p.tolist() for p in polygons],

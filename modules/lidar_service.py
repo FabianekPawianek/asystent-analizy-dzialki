@@ -54,23 +54,36 @@ class LidarService:
             except Exception as e:
                 raise e
 
-    def _apply_circular_mask(self, data):
+    def _apply_circular_mask(self, data, transform=None):
         rows, cols = data.shape
-        center_r, center_c = rows / 2.0, cols / 2.0
-        radius = min(rows, cols) / 2.0
+        center_r, center_c = (rows - 1) / 2.0, (cols - 1) / 2.0
+        
+        dx = 1.0
+        dy = 1.0
+        if transform is not None:
+            if hasattr(transform, 'a') and transform.a != 0:
+                dx = abs(transform.a)
+            if hasattr(transform, 'e') and transform.e != 0:
+                dy = abs(transform.e)
+            else:
+                dy = dx
+
+        radius_m = min(rows * dy, cols * dx) / 2.0
         
         y, x = np.ogrid[:rows, :cols]
+        x_m = (x - center_c) * dx
+        y_m = (y - center_r) * dy
         
-        dist_from_center_sq = (x - center_c)**2 + (y - center_r)**2
-        mask_outside = dist_from_center_sq > radius**2
+        dist_from_center_m_sq = x_m**2 + y_m**2
+        mask_outside = dist_from_center_m_sq > radius_m**2
         
         if np.issubdtype(data.dtype, np.floating):
             data[mask_outside] = np.nan
         
         return data
 
-    def apply_circular_mask(self, data: np.ndarray) -> np.ndarray:
-        return self._apply_circular_mask(data.copy())
+    def apply_circular_mask(self, data: np.ndarray, transform=None) -> np.ndarray:
+        return self._apply_circular_mask(data.copy(), transform=transform)
 
 
     def get_dsm_data(self, bbox, crs="EPSG:2180", width=None, height=None, res_x=None, res_y=None, coverage_id=None, apply_circular_mask: bool = True):
@@ -136,7 +149,7 @@ class LidarService:
                     data = np.where(data == nodata, np.nan, data)
 
                 if apply_circular_mask:
-                    data = self._apply_circular_mask(data)
+                    data = self._apply_circular_mask(data, transform)
                 return data, transform
 
             finally:
@@ -210,7 +223,7 @@ class LidarService:
                     data = np.where(data == nodata, np.nan, data)
 
                 if apply_circular_mask:
-                    data = self._apply_circular_mask(data)
+                    data = self._apply_circular_mask(data, transform)
                 return data, transform
 
             finally:
