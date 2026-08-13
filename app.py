@@ -18,6 +18,7 @@ from streamlit_folium import st_folium
 from pyproj import Transformer
 from urllib.parse import quote_plus
 import platform
+import geopandas as gpd
 
 # st.cache_data.clear()
 import os
@@ -1574,12 +1575,21 @@ if st.session_state.show_search or st.session_state.map_center:
                         else:
                             analysis_map_center = (53.4285, 14.5511)
 
-                    gdf_buildings_wgs84 = ox.features_from_point((analysis_map_center[0], analysis_map_center[1]), {"building": True},
-                                                                 dist=analysis_radius)
-                    gdf_buildings_metric = gdf_buildings_wgs84.to_crs("epsg:2180")
+                    try:
+                        gdf_buildings_wgs84 = ox.features_from_point(
+                            (analysis_map_center[0], analysis_map_center[1]),
+                            {"building": True},
+                            dist=analysis_radius
+                        )
+                        if not gdf_buildings_wgs84.empty:
+                            gdf_buildings_metric = gdf_buildings_wgs84.to_crs("epsg:2180")
+                        else:
+                            gdf_buildings_metric = gpd.GeoDataFrame()
+                    except Exception as e_osmnx:
+                        print(f"DEBUG OSMNX: Failed to fetch features via osmnx: {e_osmnx}", flush=True)
+                        gdf_buildings_metric = gpd.GeoDataFrame()
 
                     buildings_data_metric = []
-
 
                     def est_h(r):
                         try:
@@ -1592,14 +1602,30 @@ if st.session_state.show_search or st.session_state.map_center:
                             pass
                         return 10.0
 
-
-                    gdf_buildings_metric['height'] = gdf_buildings_metric.apply(est_h, axis=1)
-                    for _, building in gdf_buildings_metric.iterrows():
-                        if building.geometry.geom_type in ['Polygon', 'MultiPolygon']:
-                            polygons = [
-                                building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
-                            for p in polygons: buildings_data_metric.append(
-                                {"polygon": list(p.exterior.coords), "height": building.height})
+                    if not gdf_buildings_metric.empty:
+                        gdf_buildings_metric['height'] = gdf_buildings_metric.apply(est_h, axis=1)
+                        for _, building in gdf_buildings_metric.iterrows():
+                            if building.geometry and building.geometry.geom_type in ['Polygon', 'MultiPolygon']:
+                                polygons = [
+                                    building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
+                                for p in polygons: buildings_data_metric.append(
+                                    {"polygon": list(p.exterior.coords), "height": building.height})
+                    else:
+                        try:
+                            if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
+                                p_coords = st.session_state.parcel_data["Współrzędne EPSG:2180"]
+                                p_minx = min(p[0] for p in p_coords) - analysis_radius
+                                p_miny = min(p[1] for p in p_coords) - analysis_radius
+                                p_maxx = max(p[0] for p in p_coords) + analysis_radius
+                                p_maxy = max(p[1] for p in p_coords) + analysis_radius
+                                b_polys = solar.fetch_building_polygons((p_minx, p_miny, p_maxx, p_maxy))
+                                for b_p in b_polys:
+                                    buildings_data_metric.append({
+                                        "polygon": list(b_p.exterior.coords),
+                                        "height": 10.0
+                                    })
+                        except Exception as e_fallback:
+                            print(f"DEBUG BUILDINGS FALLBACK: {e_fallback}", flush=True)
 
                     if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
                         coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
