@@ -5,7 +5,7 @@ import osmnx as ox
 import rasterio
 from pyproj import Transformer
 from shapely.geometry import Polygon
-from matplotlib import cm
+import matplotlib as mpl
 import modules.geospatial as geospatial
 
 MAX_VISUALIZATION_POINTS = 500000
@@ -30,7 +30,7 @@ def value_to_rgb(value, min_val, max_val, colormap='plasma'):
     else:
         norm_value = (value - min_val) / (max_val - min_val)
 
-    rgba = cm.get_cmap(colormap)(norm_value)
+    rgba = mpl.colormaps[colormap](norm_value)
     return [int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255), 200]
 
 def map_sunlit_hours_to_rgba(sunlit_hours, min_val=None, max_val=None, colormap='plasma', alpha=255):
@@ -49,7 +49,7 @@ def map_sunlit_hours_to_rgba(sunlit_hours, min_val=None, max_val=None, colormap=
         norm_values = np.clip((sunlit_hours - min_val) / (max_val - min_val), 0.0, 1.0)
 
     try:
-        cmap = cm.get_cmap(colormap)
+        cmap = mpl.colormaps[colormap]
     except AttributeError:
         import matplotlib.pyplot as plt
         cmap = plt.get_cmap(colormap)
@@ -61,7 +61,7 @@ def map_sunlit_hours_to_rgba(sunlit_hours, min_val=None, max_val=None, colormap=
 
 def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
     if min_val == max_val:
-        rgba = cm.get_cmap(colormap)(0.5)
+        rgba = mpl.colormaps[colormap](0.5)
         rgb = f"rgb({int(rgba[0] * 255)}, {int(rgba[1] * 255)}, {int(rgba[2] * 255)})"
         label = f"{min_val:.1f}h"
         header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
@@ -70,7 +70,7 @@ def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
         return f"{header}{title}{content}</div>"
 
     values = np.linspace(min_val, max_val, steps)
-    colors = cm.get_cmap(colormap)(np.linspace(0, 0.90, steps))
+    colors = mpl.colormaps[colormap](np.linspace(0, 0.90, steps))
     header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
     title = "<div style='margin-bottom: 8px;'><b>Czas nasłonecznienia [h]</b></div>"
     content = "<div style='display: flex; flex-direction: row; align-items: center; justify-content: space-between;'>"
