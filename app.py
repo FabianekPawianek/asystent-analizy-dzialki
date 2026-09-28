@@ -645,32 +645,53 @@ st.markdown("""
         padding-right: 4rem;
     }
 
-    /* Headers with clean styling */
-    h1 {
+    /* H1 - Main Title (Always dominant, never wraps) */
+    .stApp h1, .main-title {
         color: #1a237e !important;
         font-weight: 700;
         letter-spacing: -0.5px;
         animation: fadeInDown 0.6s ease;
         text-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        text-align: center !important;
+        font-size: clamp(1.8rem, 4.2vw, 3.2rem) !important;
+        width: 100% !important;
+        margin: 0 auto 0.5rem auto !important;
+        line-height: 1.2 !important;
     }
 
-    /* Responsive h1 styling for mobile devices */
-    @media (max-width: 1000px) {
-        h1 {
-            font-size: 2rem !important;
-        }
-    }
-
-    @media (max-width: 480px) {
-        h1 {
-            font-size: 1.5rem !important;
-        }
-    }
-
-    h2, h3 {
+    /* H2 - Section Titles (Always proportionally smaller than H1) */
+    .stApp h2, .main h2, .stMarkdown h2 {
         color: #2e7d32 !important;
         font-weight: 600;
         letter-spacing: -0.3px;
+        font-size: clamp(1.25rem, 2.6vw, 2.0rem) !important;
+        text-align: center !important;
+        line-height: 1.3 !important;
+        margin-top: 1.2rem !important;
+        margin-bottom: 0.4rem !important;
+        word-break: keep-all !important;
+        hyphens: none !important;
+    }
+
+    /* H3 - Cards & Sub-sections */
+    .stApp h3, .main h3, .stMarkdown h3, .analysis-card h3 {
+        color: #2e7d32 !important;
+        font-weight: 600;
+        letter-spacing: -0.3px;
+        font-size: clamp(1.05rem, 1.8vw, 1.4rem) !important;
+        line-height: 1.3 !important;
+        word-break: keep-all !important;
+        hyphens: none !important;
+    }
+
+    /* Captions & Subtitles below headings */
+    .main-subtitle, .stMarkdown p.subtitle, .section-subtitle {
+        font-size: clamp(0.8rem, 1.1vw, 0.95rem) !important;
+        text-align: center !important;
+        color: #616161 !important;
+        line-height: 1.4 !important;
     }
 
     @keyframes fadeInDown {
@@ -700,22 +721,50 @@ st.markdown("""
         background: #ffffff !important;
     }
 
-    /* Buttons with hover effects */
+    /* Hide header anchor links and ensure true centering */
+    [data-testid="stHeaderActionElements"],
+    a.header-anchor,
+    .stMarkdown h1 a, .stMarkdown h2 a, .stMarkdown h3 a {
+        display: none !important;
+    }
+
+    /* Prevent button text wrapping into two lines like 'Wybie rz' */
     .stButton button, .stDownloadButton button {
         background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
         color: white !important;
         border: none !important;
         border-radius: 12px !important;
-        padding: 12px 32px !important;
+        padding: 10px 24px !important;
         font-weight: 600 !important;
         font-size: 16px !important;
         transition: all 0.3s ease !important;
         box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3) !important;
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        overflow-wrap: normal !important;
+        min-width: 130px !important;
     }
 
     .stButton button:hover, .stDownloadButton button:hover {
         transform: translateY(-2px) !important;
         box-shadow: 0 6px 25px rgba(40, 167, 69, 0.5) !important;
+    }
+
+    /* Universal card header and typography styling */
+    .analysis-card h3 {
+        color: #424242 !important;
+        font-size: clamp(1.05rem, 1.8vw, 1.4rem) !important;
+        line-height: 1.3 !important;
+        word-break: keep-all !important;
+        hyphens: none !important;
+        text-align: center !important;
+    }
+
+    .analysis-card p {
+        font-size: clamp(0.8rem, 1.1vw, 0.95rem) !important;
+        text-align: justify !important;
+        text-justify: inter-word !important;
+        line-height: 1.5 !important;
     }
 
     /* FORCE GREEN COLOR ON ALL PRIMARY ELEMENTS - Override Streamlit cache */
@@ -974,11 +1023,11 @@ for key in ['map_center', 'parcel_data', 'selected_parcels', 'analysis_results',
 if not st.session_state.show_search and not st.session_state.map_center:
     st.markdown("""
     <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 85vh; text-align: center;">
-        <h1 style="font-size: 4rem; margin-bottom: 1rem; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
+        <h1 class="main-title" style="margin-bottom: 0.5rem; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700;">
             Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1.3rem; color: #424242; margin-bottom: 0.5rem; font-weight: 500;">Polska • Wersja Beta 0.2.2</p>
-        <p style="font-size: 1rem; color: #616161; margin-bottom: 3rem;">
+        <p style="font-size: 0.95rem; color: #616161; margin-bottom: 0.5rem; font-weight: 500;">Polska • Wersja Beta 0.2.2</p>
+        <p style="font-size: 0.95rem; color: #757575; margin-bottom: 3rem;">
             Autor: Fabian Korycki | Powered by <span style="color: #28a745; font-weight: 600;">Google Gemini AI </span> & <span style="color: #28a745; font-weight: 600;">Geoportal.gov.pl </span>
         </p>
     </div>
@@ -1000,10 +1049,10 @@ if not st.session_state.show_search and not st.session_state.map_center:
 if st.session_state.show_search or st.session_state.map_center:
     st.markdown("""
     <div style="text-align: center; padding: 2rem 0 1rem 0;">
-        <h1 style="font-size: 4rem; margin: 0; background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700; line-height: 1.2;">
+        <h1 class="main-title" style="background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700;">
             Asystent Analizy Działki
         </h1>
-        <p style="font-size: 1rem; color: #616161; margin: 0.5rem 0 0 0;">Polska • Wersja Beta 0.2.2</p>
+        <p style="font-size: 0.95rem; color: #616161; margin: 0.5rem 0 0 0;">Polska • Wersja Beta 0.2.2</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1012,8 +1061,19 @@ if st.session_state.show_search or st.session_state.map_center:
         submitted = st.form_submit_button("Wyszukaj działkę", use_container_width=True)
 
     if submitted:
-        st.session_state.parcel_data = None;
-        st.session_state.analysis_results = None
+        st.session_state.parcel_data = None
+        st.session_state.selected_parcels = []
+
+        reset_keys = [
+            'selected_analysis', 'analysis_results', 'pog_analysis_started',
+            'solar_analysis_results', 'solar_grid_points', 'lidar_point_cloud_layer',
+            'generative_massing_layer', 'generative_massing_deck', 'mpzp_data',
+            'pog_data', 'current_lidar_bbox', 'is_building_mask'
+        ]
+        for k in reset_keys:
+            if k in st.session_state:
+                del st.session_state[k]
+
         with st.spinner("Pobieram współrzędne..."):
             coords, error = geospatial.geocode_address_to_coords(address_input)
             if error:
@@ -1027,7 +1087,7 @@ if st.session_state.show_search or st.session_state.map_center:
             <h2 style="background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 600;">
                 Wybierz działki na mapie
             </h2>
-            <p style="color: #616161; font-size: 1rem;">Kliknij na działki, aby je zaznaczyć/odznaczyć.</p>
+            <p class="section-subtitle">Kliknij na działki, aby je zaznaczyć/odznaczyć.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1351,8 +1411,8 @@ if st.session_state.show_search or st.session_state.map_center:
         if st.session_state.selected_parcels:
             st.markdown("""
             <div style="text-align: center; margin: 10rem 0 3rem 0;">
-                <h2 style="font-size: 2.2rem; margin-bottom: 0.5rem;">Dostępne narzędzia</h2>
-                <p style="color: #616161; font-size: 1.05rem;">Kliknij jedną z opcji aby rozpocząć</p>
+                <h2 style="margin-bottom: 0.5rem;">Dostępne narzędzia</h2>
+                <p class="section-subtitle">Kliknij jedną z opcji aby rozpocząć</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1363,56 +1423,50 @@ if st.session_state.show_search or st.session_state.map_center:
 
             with analysis_col1:
                 st.markdown("""
-                <div style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
-                    <h3 style="font-size: 1.6rem; margin-bottom: 1rem; color: #424242;">Analiza Nasłonecznienia</h3>
-                    <p style="color: #616161; font-size: 0.95rem; margin-bottom: 0; line-height: 1.6;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
+                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
+                    <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza Nasłonecznienia</h3>
+                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
                 </div>
                 """, unsafe_allow_html=True)
 
                 st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
-                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                with col_btn2:
-                    if st.button("Wybierz", key="select_solar", use_container_width=True):
-                        st.session_state.selected_analysis = "solar"
+                if st.button("Wybierz", key="select_solar", use_container_width=True):
+                    st.session_state.selected_analysis = "solar"
 
             with analysis_col2:
                 st.markdown("""
-                <div style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
-                    <h3 style="font-size: 1.6rem; margin-bottom: 1rem; color: #424242;">Analiza POG (Plan Ogólny Gminy)</h3>
-                    <p style="color: #616161; font-size: 0.95rem; margin-bottom: 0; line-height: 1.6;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Google Gemini)</p>
+                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
+                    <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza POG (Plan Ogólny Gminy)</h3>
+                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Google Gemini)</p>
                 </div>
                 """, unsafe_allow_html=True)
 
                 st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
-                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                with col_btn2:
-                    if st.button("Wybierz", key="select_pog", use_container_width=True):
-                        st.session_state.selected_analysis = "pog"
+                if st.button("Wybierz", key="select_pog", use_container_width=True):
+                    st.session_state.selected_analysis = "pog"
 
             with analysis_col3:
                 st.markdown("""
-                <div style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(224,109,83,0.08) 0%, rgba(200,80,60,0.08) 100%); border-radius: 20px; border: 2px solid rgba(224,109,83,0.3); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
-                    <h3 style="font-size: 1.6rem; margin-bottom: 1rem; color: #424242;">Koncepcja Kubaturowa</h3>
-                    <p style="color: #616161; font-size: 0.95rem; margin-bottom: 0; line-height: 1.6;">Generuje humanistyczną bryłę 3D dopasowaną do słońca, POG i twoich życzeń</p>
+                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(224,109,83,0.08) 0%, rgba(200,80,60,0.08) 100%); border-radius: 20px; border: 2px solid rgba(224,109,83,0.3); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
+                    <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Koncepcja Kubaturowa</h3>
+                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Generuje humanistyczną bryłę 3D dopasowaną do słońca, POG i twoich życzeń</p>
                 </div>
                 """, unsafe_allow_html=True)
 
                 st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
-                col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                with col_btn2:
-                    if st.button("Wybierz", key="select_massing", use_container_width=True):
-                        st.session_state.selected_analysis = "massing"
+                if st.button("Wybierz", key="select_massing", use_container_width=True):
+                    st.session_state.selected_analysis = "massing"
 
         if st.session_state.selected_analysis == "solar":
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #FFC107, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)
 
             st.markdown("""
             <div style="text-align: center; margin-bottom: 2rem;">
-                <h2 style="font-size: 2rem;">Analiza Nasłonecznienia</h2>
-                <p style="color: #616161; font-size: 1rem;">Skonfiguruj parametry analizy</p>
+                <h2>Analiza Nasłonecznienia</h2>
+                <p class="section-subtitle">Skonfiguruj parametry analizy</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1891,8 +1945,8 @@ if st.session_state.show_search or st.session_state.map_center:
 
             st.markdown("""
             <div style="text-align: center; margin-bottom: 2rem;">
-                <h2 style="font-size: 2rem;">Analiza POG (Plan Ogólny Gminy)</h2>
-                <p style="color: #616161; font-size: 1rem;">Analiza POG przez AI</p>
+                <h2>Analiza POG (Plan Ogólny Gminy)</h2>
+                <p class="section-subtitle">Analiza POG przez AI</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1963,8 +2017,8 @@ if st.session_state.show_search or st.session_state.map_center:
 
             st.markdown("""
             <div style="text-align: center; margin-bottom: 2rem;">
-                <h2 style="font-size: 2rem; color: #E06D53;">Generatywna Koncepcja Kubaturowa</h2>
-                <p style="color: #616161; font-size: 1rem;">Humanistyczna generacja koncepcji 3D w zgodzie z nasłonecznieniem i POG</p>
+                <h2 style="color: #E06D53;">Generatywna Koncepcja Kubaturowa</h2>
+                <p class="section-subtitle">Humanistyczna generacja koncepcji 3D w zgodzie z nasłonecznieniem i POG</p>
             </div>
             """, unsafe_allow_html=True)
 

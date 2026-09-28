@@ -237,16 +237,12 @@ def fetch_mpzp_kimpzp(parcel_gdf) -> dict:
             mpzp_data["raw_attributes"] = parsed_attrs
 
             if parsed_attrs:
-                # Explicit mapping without key collision
                 mpzp_data["nazwa_planu"] = fix_polish_encoding(parsed_attrs.get("nazwa_plan") or parsed_attrs.get("nazwa") or parsed_attrs.get("plan"))
                 mpzp_data["numer_uchwaly"] = fix_polish_encoding(parsed_attrs.get("nr_uch_uch") or parsed_attrs.get("nr_uch_wsz") or parsed_attrs.get("uchwala") or parsed_attrs.get("numer"))
                 mpzp_data["data_uchwaly"] = fix_polish_encoding(parsed_attrs.get("data_uch_u") or parsed_attrs.get("data_uch_w") or parsed_attrs.get("data"))
                 mpzp_data["gmina"] = fix_polish_encoding(parsed_attrs.get("gmina") or parsed_attrs.get("miejscowosc"))
-                
-                # Prioritize resolution links
                 mpzp_data["link_uchwala_tekst"] = parsed_attrs.get("link2") or parsed_attrs.get("dzu_link") or parsed_attrs.get("link_do_bi") or parsed_attrs.get("link3")
                 
-                # Filter legend from drawing link
                 raw_rysunek = parsed_attrs.get("link_rysunek") or parsed_attrs.get("legenda1")
                 if raw_rysunek and not any(bad in str(raw_rysunek).lower() for bad in ["legenda", "_legenda", "legend"]):
                     mpzp_data["link_rysunek"] = raw_rysunek
@@ -267,7 +263,6 @@ def fetch_mpzp_kimpzp(parcel_gdf) -> dict:
 
             for u in all_candidate_urls:
                 u_lower = u.lower()
-                # KATEGORYCZNY ZAKAZ: Odrzucenie wszelkich linków do legendy
                 if any(bad in u_lower for bad in ["legenda", "_legenda", "legend"]):
                     continue
 
@@ -367,7 +362,6 @@ def fetch_pog_data_for_parcel(parcel_gdf):
 
     response_text = None
 
-    # 1. WMS GetFeatureInfo na warstwach POG jako metoda nadrzędna
     wms_params = {
         'SERVICE': 'WMS',
         'VERSION': '1.3.0',
@@ -392,7 +386,6 @@ def fetch_pog_data_for_parcel(parcel_gdf):
     except Exception:
         pass
 
-    # 2. Fallback WFS (gdyby WMS nie zwrócił danych)
     if not response_text:
         wfs_params_options = [
             {
@@ -574,7 +567,6 @@ def analyze_planning_documents_with_ai(pog_data_dict: dict, mpzp_data_dict: dict
     nazwa_planu = mpzp_data_dict.get("nazwa_planu") if has_mpzp else None
     numer_uchwaly = mpzp_data_dict.get("numer_uchwaly") if has_mpzp else None
 
-    # Sekcja MPZP
     if has_mpzp:
         uchwala_str = f", Uchwała nr {numer_uchwaly}" if numer_uchwaly else ""
         nazwa_str = nazwa_planu or "Miejscowy Plan Zagospodarowania Przestrzennego"
@@ -588,7 +580,6 @@ def analyze_planning_documents_with_ai(pog_data_dict: dict, mpzp_data_dict: dict
         mpzp_section = """### Miejscowy Plan Zagospodarowania Przestrzennego (MPZP)
 - **Status:** Brak obowiązującego planu miejscowego."""
 
-    # Sekcja POG
     has_pog = False
     if isinstance(pog_data_dict, dict):
         has_pog = pog_data_dict.get("has_pog", False)
