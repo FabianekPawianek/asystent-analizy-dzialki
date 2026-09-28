@@ -1423,7 +1423,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
             with analysis_col1:
                 st.markdown("""
-                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
+                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 250px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
                     <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza Nasłonecznienia</h3>
                     <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
                 </div>
@@ -1436,7 +1436,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
             with analysis_col2:
                 st.markdown("""
-                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
+                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 250px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
                     <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza POG (Plan Ogólny Gminy)</h3>
                     <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Google Gemini)</p>
                 </div>
@@ -1449,7 +1449,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
             with analysis_col3:
                 st.markdown("""
-                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(224,109,83,0.08) 0%, rgba(200,80,60,0.08) 100%); border-radius: 20px; border: 2px solid rgba(224,109,83,0.3); min-height: 350px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
+                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(224,109,83,0.08) 0%, rgba(200,80,60,0.08) 100%); border-radius: 20px; border: 2px solid rgba(224,109,83,0.3); min-height: 250px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
                     <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Koncepcja Kubaturowa</h3>
                     <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Generuje humanistyczną bryłę 3D dopasowaną do słońca, POG i twoich życzeń</p>
                 </div>
