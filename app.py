@@ -1943,6 +1943,21 @@ if st.session_state.show_search or st.session_state.map_center:
                                     st.markdown(f"**{key}:**")
                                     st.info(f"{value}")
 
+                    mpzp_data = results.get("mpzp_data")
+                    if isinstance(mpzp_data, dict) and mpzp_data.get("has_mpzp"):
+                        link_uchwala = mpzp_data.get("link_uchwala_tekst")
+                        link_rysunek = mpzp_data.get("link_rysunek")
+                        if link_uchwala or link_rysunek:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            cols = st.columns(2)
+                            if link_uchwala:
+                                with cols[0]:
+                                    st.link_button("Zobacz treść uchwały MPZP", link_uchwala, use_container_width=True)
+                            if link_rysunek:
+                                if not any(bad in str(link_rysunek).lower() for bad in ["legenda", "_legenda", "legend"]):
+                                    with cols[1]:
+                                        st.link_button("Zobacz rysunek planu", link_rysunek, use_container_width=True)
+
         elif st.session_state.selected_analysis == "massing":
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #E06D53, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)
 
