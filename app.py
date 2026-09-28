@@ -2001,16 +2001,23 @@ if st.session_state.show_search or st.session_state.map_center:
                     if isinstance(mpzp_data, dict) and mpzp_data.get("has_mpzp"):
                         link_uchwala = mpzp_data.get("link_uchwala_tekst")
                         link_rysunek = mpzp_data.get("link_rysunek")
-                        if link_uchwala or link_rysunek:
+
+                        valid_uchwala = link_uchwala if (link_uchwala and pog_agent.is_valid_web_document_url(link_uchwala)) else None
+                        valid_rysunek = link_rysunek if (link_rysunek and pog_agent.is_valid_web_document_url(link_rysunek)) else None
+
+                        if valid_uchwala and valid_rysunek:
                             st.markdown("<br>", unsafe_allow_html=True)
                             cols = st.columns(2)
-                            if link_uchwala:
-                                with cols[0]:
-                                    st.link_button("Zobacz treść uchwały MPZP", link_uchwala, use_container_width=True)
-                            if link_rysunek:
-                                if not any(bad in str(link_rysunek).lower() for bad in ["legenda", "_legenda", "legend"]):
-                                    with cols[1]:
-                                        st.link_button("Zobacz rysunek planu", link_rysunek, use_container_width=True)
+                            with cols[0]:
+                                st.link_button("Zobacz treść uchwały MPZP", valid_uchwala, use_container_width=True)
+                            with cols[1]:
+                                st.link_button("Zobacz rysunek planu", valid_rysunek, use_container_width=True)
+                        elif valid_uchwala:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            st.link_button("Zobacz treść uchwały MPZP", valid_uchwala, use_container_width=True)
+                        elif valid_rysunek:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            st.link_button("Zobacz rysunek planu", valid_rysunek, use_container_width=True)
 
         elif st.session_state.selected_analysis == "massing":
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #E06D53, transparent); margin: 3rem 0 2rem 0; opacity: 0.6;"></div>""", unsafe_allow_html=True)

@@ -98,13 +98,33 @@ def _extract_bbox_and_poly(parcel_gdf):
 def fix_polish_encoding(text: str) -> str:
     """Repairs double-encoded or Latin1-decoded UTF-8 Polish text strings."""
     if not text or not isinstance(text, str):
-        return text
-    try:
-        if any(c in text for c in ['Ä', 'Ã', 'Å']):
+        return text if text is not None else ""
+    # Only attempt fix if typical Mojibake artifact characters exist
+    if any(c in text for c in ['Ã', 'Ä', 'Å']):
+        try:
             return text.encode('latin1').decode('utf-8')
-    except Exception:
-        pass
+        except Exception:
+            return text
     return text.strip()
+
+
+def is_valid_web_document_url(url: str) -> bool:
+    """
+    Sprawdza czy URL jest prawidłowym linkiem do dokumentu lub strony BIP/Dziennika,
+    a nie formalnym identyfikatorem zbioru/obiektu APP GML ani legendą.
+    """
+    if not url or not isinstance(url, str) or not url.startswith("http"):
+        return False
+    u_l = url.lower()
+    # Reject formal spatial dataset identifiers / schema URIs
+    if "gov.pl/zagospodarowanieprzestrzenne" in u_l or "gov.pl/zagospodarowanieprzestrzenne/app" in u_l:
+        return False
+    if any(bad in u_l for bad in ["legenda", "_legenda", "legend"]):
+        return False
+    # Accept actual files or active portal pages
+    if any(ext in u_l for ext in [".pdf", ".tif", ".tiff", ".geotiff", ".jpg", ".png", "bip", "edziennik", "duwo", "dzu", "wykazplanow", "view"]):
+        return True
+    return True
 
 
 def parse_geoserver_feature_info_html(html_text: str):
@@ -194,8 +214,8 @@ def fetch_mpzp_kimpzp(parcel_gdf) -> dict:
             'SERVICE': 'WMS',
             'VERSION': '1.1.1',
             'REQUEST': 'GetFeatureInfo',
-            'LAYERS': 'plany,granice',
-            'QUERY_LAYERS': 'plany,granice',
+            'LAYERS': 'plany',
+            'QUERY_LAYERS': 'plany',
             'BBOX': f"{minx},{miny},{maxx},{maxy}",
             'SRS': 'EPSG:2180',
             'WIDTH': '101',
@@ -241,11 +261,15 @@ def fetch_mpzp_kimpzp(parcel_gdf) -> dict:
                 mpzp_data["numer_uchwaly"] = fix_polish_encoding(parsed_attrs.get("nr_uch_uch") or parsed_attrs.get("nr_uch_wsz") or parsed_attrs.get("uchwala") or parsed_attrs.get("numer"))
                 mpzp_data["data_uchwaly"] = fix_polish_encoding(parsed_attrs.get("data_uch_u") or parsed_attrs.get("data_uch_w") or parsed_attrs.get("data"))
                 mpzp_data["gmina"] = fix_polish_encoding(parsed_attrs.get("gmina") or parsed_attrs.get("miejscowosc"))
-                mpzp_data["link_uchwala_tekst"] = parsed_attrs.get("link2") or parsed_attrs.get("dzu_link") or parsed_attrs.get("link_do_bi") or parsed_attrs.get("link3")
-                
+                raw_uchwala = parsed_attrs.get("link2") or parsed_attrs.get("dzu_link") or parsed_attrs.get("link_do_bi") or parsed_attrs.get("link3")
+                if raw_uchwala and is_valid_web_document_url(str(raw_uchwala)):
+                    mpzp_data["link_uchwala_tekst"] = str(raw_uchwala)
+                else:
+                    mpzp_data["link_uchwala_tekst"] = None
+
                 raw_rysunek = parsed_attrs.get("link_rysunek") or parsed_attrs.get("legenda1")
-                if raw_rysunek and not any(bad in str(raw_rysunek).lower() for bad in ["legenda", "_legenda", "legend"]):
-                    mpzp_data["link_rysunek"] = raw_rysunek
+                if raw_rysunek and is_valid_web_document_url(str(raw_rysunek)):
+                    mpzp_data["link_rysunek"] = str(raw_rysunek)
                 else:
                     mpzp_data["link_rysunek"] = None
 
@@ -262,9 +286,9 @@ def fetch_mpzp_kimpzp(parcel_gdf) -> dict:
                         all_candidate_urls.append(m.group(0))
 
             for u in all_candidate_urls:
-                u_lower = u.lower()
-                if any(bad in u_lower for bad in ["legenda", "_legenda", "legend"]):
+                if not is_valid_web_document_url(u):
                     continue
+                u_lower = u.lower()
 
                 if any(ext in u_lower for ext in ["rysunek", "zalacznik", ".tif", ".tiff", "geotiff", "arkusz", "mapa"]):
                     if not mpzp_data["link_rysunek"]:
@@ -303,9 +327,10 @@ def fetch_mpzp_kimpzp(parcel_gdf) -> dict:
                     elif any(k in tag_clean for k in ["data", "datauchwaly"]) and not mpzp_data["data_uchwaly"]:
                         mpzp_data["data_uchwaly"] = text_val
                     elif any(k in tag_clean for k in ["tekst", "bip", "dziennik", "link_tekst", "url"]) and not mpzp_data["link_uchwala_tekst"]:
-                        mpzp_data["link_uchwala_tekst"] = text_val
+                        if is_valid_web_document_url(text_val):
+                            mpzp_data["link_uchwala_tekst"] = text_val
                     elif any(k in tag_clean for k in ["rysunek", "geotiff", "zalacznik", "link_rysunek"]) and not mpzp_data["link_rysunek"]:
-                        if not any(bad in text_val.lower() for bad in ["legenda", "_legenda", "legend"]):
+                        if is_valid_web_document_url(text_val):
                             mpzp_data["link_rysunek"] = text_val
                     elif "gmina" in tag_clean and not mpzp_data["gmina"]:
                         mpzp_data["gmina"] = text_val
@@ -315,9 +340,11 @@ def fetch_mpzp_kimpzp(parcel_gdf) -> dict:
             except Exception:
                 pass
 
-    if mpzp_data.get("link_rysunek"):
-        if any(bad in str(mpzp_data["link_rysunek"]).lower() for bad in ["legenda", "_legenda", "legend"]):
-            mpzp_data["link_rysunek"] = None
+    if mpzp_data.get("link_rysunek") and not is_valid_web_document_url(mpzp_data["link_rysunek"]):
+        mpzp_data["link_rysunek"] = None
+
+    if mpzp_data.get("link_uchwala_tekst") and not is_valid_web_document_url(mpzp_data["link_uchwala_tekst"]):
+        mpzp_data["link_uchwala_tekst"] = None
 
     if mpzp_data.get("nazwa_planu"):
         mpzp_data["nazwa_planu"] = fix_polish_encoding(mpzp_data["nazwa_planu"])
@@ -427,36 +454,100 @@ def fetch_pog_data_for_parcel(parcel_gdf):
     if response_text:
         try:
             root = ET.fromstring(response_text)
-            for elem in root.iter():
-                tag_clean = elem.tag.split('}')[-1].lower()
-                text_val = fix_polish_encoding((elem.text or "").strip())
-                if not text_val:
-                    continue
+            for child in root:
+                layer_name = child.tag.split('}')[-1].lower()
+                for elem in child.iter():
+                    tag_clean = elem.tag.split('}')[-1].lower()
+                    text_val = fix_polish_encoding((elem.text or "").strip())
+                    if text_val:
+                        pog_data["raw_attributes"][tag_clean] = text_val
 
-                pog_data["raw_attributes"][tag_clean] = text_val
+                    for attr_k, attr_v in elem.attrib.items():
+                        attr_k_clean = attr_k.split('}')[-1].lower()
+                        attr_v_clean = fix_polish_encoding(str(attr_v).strip())
+                        if not attr_v_clean:
+                            continue
+                        if any(k in attr_k_clean for k in ["tytul", "title", "nazwa", "uchwala", "akt"]) and not pog_data["akt_planowania_uchwala"]:
+                            pog_data["akt_planowania_uchwala"] = attr_v_clean
+                        if any(k in attr_k_clean for k in ["gmina", "organ"]) and not pog_data["gmina"]:
+                            pog_data["gmina"] = attr_v_clean
 
-                if tag_clean in ["symbol", "strefasymbol", "oznaczenie", "symbolstrefy"]:
-                    pog_data["strefa_symbol"] = text_val
-                elif tag_clean in ["nazwa", "strefanazwa", "nazwastrefy"]:
-                    pog_data["strefa_nazwa"] = text_val
-                elif "wysokosc" in tag_clean or "height" in tag_clean:
-                    pog_data["max_wysokosc_m"] = text_val
-                elif "biologicz" in tag_clean:
-                    pog_data["min_biologicznie_czynna_pct"] = text_val
-                elif "intensywnosc" in tag_clean:
-                    pog_data["max_intensywnosc_zabudowy"] = text_val
-                elif "powierzchniazabudowy" in tag_clean or "udzialzabudowy" in tag_clean:
-                    pog_data["max_powierzchnia_zabudowy_pct"] = text_val
-                elif "ouz" in tag_clean or "uzupelnieni" in tag_clean:
-                    pog_data["obszar_uzupelnienia_zabudowy_ouz"] = text_val
-                elif "ozs" in tag_clean or "srodmiejsk" in tag_clean:
-                    pog_data["obszar_zabudowy_srodmiejskiej_ozs"] = text_val
-                elif "uchwala" in tag_clean or "numeruchwaly" in tag_clean:
-                    pog_data["akt_planowania_uchwala"] = text_val
-                elif "gmina" in tag_clean:
-                    pog_data["gmina"] = text_val
+                    if not text_val:
+                        continue
+
+                    is_ouz = any(k in layer_name for k in ["uzupelnieni", "ouz"]) or "obszaruzupelnieniazabudowy" in tag_clean
+                    is_ozs = any(k in layer_name for k in ["srodmiejsk", "ozs"]) or "obszarzabsrodmiejskiej" in tag_clean
+                    is_akt = any(k in layer_name for k in ["akt", "uchwal"]) or "aktplanowania" in tag_clean
+                    is_strefa = "strefa" in layer_name or "strefa" in tag_clean
+
+                    if is_ouz:
+                        if tag_clean in ["oznaczenie", "symbol", "lokalnyid"] and text_val and text_val.upper() not in ["OUZ", "BRAK", "FALSE", "NIE"]:
+                            pog_data["obszar_uzupelnienia_zabudowy_ouz"] = f"TAK ({text_val})"
+                        elif not pog_data["obszar_uzupelnienia_zabudowy_ouz"]:
+                            pog_data["obszar_uzupelnienia_zabudowy_ouz"] = "TAK"
+                    elif is_ozs:
+                        if tag_clean in ["oznaczenie", "symbol", "lokalnyid"] and text_val and text_val.upper() not in ["OZS", "BRAK", "FALSE", "NIE"]:
+                            pog_data["obszar_zabudowy_srodmiejskiej_ozs"] = f"TAK ({text_val})"
+                        elif not pog_data["obszar_zabudowy_srodmiejskiej_ozs"]:
+                            pog_data["obszar_zabudowy_srodmiejskiej_ozs"] = "TAK"
+                    elif is_akt:
+                        if any(k in tag_clean for k in ["tytul", "tytulalternatywny", "nazwaaktu", "oznaczenieaktu", "uchwala", "numeruchwaly", "akt"]):
+                            if not pog_data["akt_planowania_uchwala"]:
+                                pog_data["akt_planowania_uchwala"] = text_val
+                            if not pog_data["akt_planowania_nazwa"]:
+                                pog_data["akt_planowania_nazwa"] = text_val
+                        elif any(k in tag_clean for k in ["gmina", "miejscowosc", "organ", "organustanawiajacy"]):
+                            if not pog_data["gmina"]:
+                                pog_data["gmina"] = text_val
+                    elif is_strefa:
+                        if tag_clean in ["symbol", "strefasymbol", "symbolstrefy"]:
+                            if not pog_data["strefa_symbol"]:
+                                pog_data["strefa_symbol"] = text_val
+                        elif tag_clean in ["oznaczenie"]:
+                            pog_data["strefa_symbol"] = text_val
+                        elif tag_clean in ["nazwa", "strefanazwa", "nazwastrefy", "nazwaalternatywna"]:
+                            if not pog_data["strefa_nazwa"]:
+                                pog_data["strefa_nazwa"] = text_val
+                        elif ("wysokosc" in tag_clean or "height" in tag_clean) and not any(u in tag_clean for u in ["jednostka", "unit", "uom"]):
+                            if any(c.isdigit() for c in text_val):
+                                val_clean = text_val.lower().replace("m", "").strip()
+                                pog_data["max_wysokosc_m"] = f"{val_clean} m"
+                            elif not pog_data["max_wysokosc_m"] and text_val.lower() not in ["m", "metr", "metry"]:
+                                pog_data["max_wysokosc_m"] = text_val
+                        elif "biologicz" in tag_clean or "bioczyn" in tag_clean:
+                            if any(c.isdigit() for c in text_val):
+                                val_clean = text_val.replace("%", "").strip()
+                                pog_data["min_biologicznie_czynna_pct"] = f"{val_clean}%"
+                            elif not pog_data["min_biologicznie_czynna_pct"]:
+                                pog_data["min_biologicznie_czynna_pct"] = text_val
+                        elif "intensywnosc" in tag_clean:
+                            pog_data["max_intensywnosc_zabudowy"] = text_val
+                        elif "powierzchniazabudowy" in tag_clean or "udzialzabudowy" in tag_clean:
+                            if any(c.isdigit() for c in text_val) and not text_val.endswith("%"):
+                                pog_data["max_powierzchnia_zabudowy_pct"] = f"{text_val}%"
+                            else:
+                                pog_data["max_powierzchnia_zabudowy_pct"] = text_val
         except Exception:
             pass
+
+    if not pog_data["gmina"]:
+        candidate = pog_data.get("akt_planowania_uchwala") or pog_data.get("akt_planowania_nazwa") or ""
+        if "koszalin" in candidate.lower() or (response_text and "koszalin" in response_text.lower()):
+            pog_data["gmina"] = "Koszalin"
+        else:
+            m_gmina = re.search(r'(?:miasta|gminy|m\.)\s+([A-ZĄĆĘŁŃÓŚŹŻa-ząćęłńóśźż\-]+)', candidate, re.IGNORECASE)
+            if m_gmina:
+                g_name = m_gmina.group(1).strip()
+                if g_name.lower().endswith("a") and not g_name.lower().endswith("ia"):
+                    if g_name.lower() == "koszalina":
+                        g_name = "Koszalin"
+                pog_data["gmina"] = g_name
+
+    if not pog_data["gmina"] and isinstance(parcel_gdf, dict):
+        if "Gmina" in parcel_gdf:
+            pog_data["gmina"] = parcel_gdf["Gmina"]
+        elif "ID Działki" in parcel_gdf and str(parcel_gdf["ID Działki"]).startswith("326101"):
+            pog_data["gmina"] = "Koszalin"
 
     if pog_data.get("strefa_nazwa"):
         pog_data["strefa_nazwa"] = fix_polish_encoding(pog_data["strefa_nazwa"])
@@ -464,6 +555,26 @@ def fetch_pog_data_for_parcel(parcel_gdf):
         pog_data["gmina"] = fix_polish_encoding(pog_data["gmina"])
     if pog_data.get("akt_planowania_uchwala"):
         pog_data["akt_planowania_uchwala"] = fix_polish_encoding(pog_data["akt_planowania_uchwala"])
+
+    POG_ZONE_NAMES = {
+        "SW": "Strefa wielofunkcyjna z zabudową mieszkaniową wielorodzinną",
+        "SJ": "Strefa wielofunkcyjna z zabudową mieszkaniową jednorodzinną",
+        "SU": "Strefa usługowa",
+        "SH": "Strefa gospodarcza",
+        "SP": "Strefa produkcji rolniczej",
+        "SN": "Strefa zieleni i rekreacji",
+        "SOK": "Strefa otoczenia krajobrazowego",
+        "SK": "Strefa komunikacyjna",
+        "SC": "Strefa cmentarzy",
+        "SR": "Strefa rolnicza",
+        "SL": "Strefa leśna",
+        "SWO": "Strefa wód",
+        "SG": "Strefa górnicza"
+    }
+    if not pog_data["strefa_nazwa"] and pog_data["strefa_symbol"]:
+        sym_clean = re.sub(r'^[0-9]+', '', pog_data["strefa_symbol"]).upper()
+        if sym_clean in POG_ZONE_NAMES:
+            pog_data["strefa_nazwa"] = POG_ZONE_NAMES[sym_clean]
 
     has_real_symbol = bool(pog_data["strefa_symbol"] and "brak" not in pog_data["strefa_symbol"].lower())
     has_metrics = bool(pog_data["max_wysokosc_m"] or pog_data["min_biologicznie_czynna_pct"] or pog_data["max_intensywnosc_zabudowy"])
@@ -473,6 +584,8 @@ def fetch_pog_data_for_parcel(parcel_gdf):
         pog_data["strefa_symbol"] = "Brak jednoznacznego oznaczenia WFS (wymaga weryfikacji w urzędzie gminy)" if pog_data["has_pog"] else "Brak w WFS"
     if not pog_data["strefa_nazwa"]:
         pog_data["strefa_nazwa"] = "Strefa planistyczna POG" if pog_data["has_pog"] else "Brak opublikowanego POG"
+
+    print(f"DEBUG RAW POG VALUES: gmina='{pog_data.get('gmina')}', uchwala='{pog_data.get('akt_planowania_uchwala')}', wys='{pog_data.get('max_wysokosc_m')}', bio='{pog_data.get('min_biologicznie_czynna_pct')}'", flush=True)
 
     return pog_data
 
@@ -486,13 +599,35 @@ def analyze_pog_with_ai(pog_data_dict, lang="PL"):
         init_ai()
 
     gmina = pog_data_dict.get("gmina") or "Brak danych"
-    uchwala = pog_data_dict.get("akt_planowania_uchwala") or "Brak danych"
+    uchwala = pog_data_dict.get("akt_planowania_uchwala") or ""
+    if gmina != "Brak danych" and uchwala and uchwala != gmina:
+        gmina_akt = f"{gmina} / {uchwala}"
+    elif gmina != "Brak danych":
+        gmina_akt = gmina
+    elif uchwala:
+        gmina_akt = uchwala
+    else:
+        gmina_akt = "Brak danych"
+
     symbol = pog_data_dict.get("strefa_symbol") or "Brak symbolu"
     nazwa = pog_data_dict.get("strefa_nazwa") or "Strefa planistyczna POG"
     ouz = pog_data_dict.get("obszar_uzupelnienia_zabudowy_ouz") or "Brak / Nie dotyczy"
     ozs = pog_data_dict.get("obszar_zabudowy_srodmiejskiej_ozs") or "Brak / Nie dotyczy"
-    wysokosc = pog_data_dict.get("max_wysokosc_m") or "Brak ustalenia w POG"
-    biologiczna = pog_data_dict.get("min_biologicznie_czynna_pct") or "Brak ustalenia"
+
+    wys_val = str(pog_data_dict.get("max_wysokosc_m") or "").strip()
+    if wys_val.lower() in ["m", "metr", "metry", "brak", "none"]:
+        wys_val = "Brak ustalenia"
+    elif wys_val and not wys_val.endswith("m"):
+        wys_val = f"{wys_val} m"
+    elif not wys_val:
+        wys_val = "Brak ustalenia"
+
+    bio_val = str(pog_data_dict.get("min_biologicznie_czynna_pct") or "").strip()
+    if bio_val and not bio_val.endswith("%"):
+        bio_val = f"{bio_val}%"
+    elif not bio_val:
+        bio_val = "Brak ustalenia"
+
     intensywnosc = pog_data_dict.get("max_intensywnosc_zabudowy") or "Brak ustalenia"
     pow_zabudowy = pog_data_dict.get("max_powierzchnia_zabudowy_pct") or "Brak ustalenia"
     raw_attrs = pog_data_dict.get("raw_attributes", {})
@@ -505,13 +640,12 @@ Formatuj odpowiedź w przejrzystym języku Markdown z użyciem nagłówków, czy
 
     prompt = f"""
 DANE Z PARSERA GML:
-- Gmina: {gmina}
-- Uchwała/Akt: {uchwala}
+- Gmina / Akt Prawny: {gmina_akt}
 - Strefa Planistyczna: {symbol} ({nazwa})
 - Obszar Uzupełnienia Zabudowy (OUZ): {ouz}
 - Obszar Zabudowy Śródmiejskiej (OZS): {ozs}
-- Maksymalna wysokość (m): {wysokosc}
-- Min. pow. biologicznie czynna (%): {biologiczna}
+- Maksymalna wysokość (m): {wys_val}
+- Min. pow. biologicznie czynna (%): {bio_val}
 - Maks. intensywność zabudowy: {intensywnosc}
 - Maks. pow. zabudowy (%): {pow_zabudowy}
 - Wszystkie atrybuty surowe: {raw_attrs}
@@ -529,12 +663,12 @@ WYMAGANY FORMAT ODPOWIEDZI (Markdown):
 
 | Parametr | Ustalenie POG |
 | :--- | :--- |
-| **Gmina / Akt Prawny** | {gmina} ({uchwala}) |
+| **Gmina / Akt Prawny** | {gmina_akt} |
 | **Strefa Planistyczna** | **{symbol}** - {nazwa} |
 | **Obszar Uzupełnienia Zabudowy (OUZ)** | {ouz} |
 | **Obszar Zabudowy Śródmiejskiej (OZS)** | {ozs} |
-| **Min. Pow. Biologicznie Czynna** | **{biologiczna}** |
-| **Maks. Wysokość Zabudowy** | {wysokosc} |
+| **Min. Pow. Biologicznie Czynna** | **{bio_val}** |
+| **Maks. Wysokość Zabudowy** | {wys_val} |
 | **Maks. Intensywność Zabudowy** | {intensywnosc} |
 
 #### Wnioski i Wytyczne Architektoniczne
@@ -596,21 +730,43 @@ def analyze_planning_documents_with_ai(pog_data_dict: dict, mpzp_data_dict: dict
         except Exception:
             sym = pog_data_dict.get("strefa_symbol") or "Brak"
             nazwa = pog_data_dict.get("strefa_nazwa") or "Strefa POG"
-            wys = pog_data_dict.get("max_wysokosc_m") or "Brak ustalenia"
-            bio = pog_data_dict.get("min_biologicznie_czynna_pct") or "Brak ustalenia"
+
+            wys_val = str(pog_data_dict.get("max_wysokosc_m") or "").strip()
+            if wys_val.lower() in ["m", "metr", "metry", "brak", "none"]:
+                wys_val = "Brak ustalenia"
+            elif wys_val and not wys_val.endswith("m"):
+                wys_val = f"{wys_val} m"
+            elif not wys_val:
+                wys_val = "Brak ustalenia"
+
+            bio_val = str(pog_data_dict.get("min_biologicznie_czynna_pct") or "").strip()
+            if bio_val and not bio_val.endswith("%"):
+                bio_val = f"{bio_val}%"
+            elif not bio_val:
+                bio_val = "Brak ustalenia"
+
             intens = pog_data_dict.get("max_intensywnosc_zabudowy") or "Brak ustalenia"
             gmina = pog_data_dict.get("gmina") or "Brak danych"
             uchwala = pog_data_dict.get("akt_planowania_uchwala") or ""
+            if gmina != "Brak danych" and uchwala and uchwala != gmina:
+                gmina_akt = f"{gmina} / {uchwala}"
+            elif gmina != "Brak danych":
+                gmina_akt = gmina
+            elif uchwala:
+                gmina_akt = uchwala
+            else:
+                gmina_akt = "Brak danych"
+
             pog_section = f"""### Karta Planistyczna POG
 
 | Parametr | Ustalenie POG |
 | :--- | :--- |
-| **Gmina / Akt Prawny** | {gmina} ({uchwala}) |
+| **Gmina / Akt Prawny** | {gmina_akt} |
 | **Strefa Planistyczna** | **{sym}** - {nazwa} |
 | **Obszar Uzupełnienia Zabudowy (OUZ)** | {pog_data_dict.get("obszar_uzupelnienia_zabudowy_ouz") or "Nie dotyczy"} |
 | **Obszar Zabudowy Śródmiejskiej (OZS)** | {pog_data_dict.get("obszar_zabudowy_srodmiejskiej_ozs") or "Nie dotyczy"} |
-| **Min. Pow. Biologicznie Czynna** | **{bio}** |
-| **Maks. Wysokość Zabudowy** | {wys} |
+| **Min. Pow. Biologicznie Czynna** | **{bio_val}** |
+| **Maks. Wysokość Zabudowy** | {wys_val} |
 | **Maks. Intensywność Zabudowy** | {intens} |"""
     else:
         pog_section = """### Plan Ogólny Gminy (POG)
