@@ -373,6 +373,8 @@ def fetch_pog_data_for_parcel(parcel_gdf):
         "bbox": [minx, miny, maxx, maxy],
         "strefa_symbol": None,
         "strefa_nazwa": None,
+        "profil_podstawowy": None,
+        "profil_dodatkowy": None,
         "max_wysokosc_m": None,
         "min_biologicznie_czynna_pct": None,
         "max_intensywnosc_zabudowy": None,
@@ -478,7 +480,7 @@ def fetch_pog_data_for_parcel(parcel_gdf):
                     is_ouz = any(k in layer_name for k in ["uzupelnieni", "ouz"]) or "obszaruzupelnieniazabudowy" in tag_clean
                     is_ozs = any(k in layer_name for k in ["srodmiejsk", "ozs"]) or "obszarzabsrodmiejskiej" in tag_clean
                     is_akt = any(k in layer_name for k in ["akt", "uchwal"]) or "aktplanowania" in tag_clean
-                    is_strefa = "strefa" in layer_name or "strefa" in tag_clean
+                    is_strefa = "strefa" in layer_name or "strefa" in tag_clean or "profil" in tag_clean
 
                     if is_ouz:
                         if tag_clean in ["oznaczenie", "symbol", "lokalnyid"] and text_val and text_val.upper() not in ["OUZ", "BRAK", "FALSE", "NIE"]:
@@ -508,6 +510,18 @@ def fetch_pog_data_for_parcel(parcel_gdf):
                         elif tag_clean in ["nazwa", "strefanazwa", "nazwastrefy", "nazwaalternatywna"]:
                             if not pog_data["strefa_nazwa"]:
                                 pog_data["strefa_nazwa"] = text_val
+                        elif any(k in tag_clean for k in ["profilpodstawowy", "profil_podstawowy", "profilpodst", "profilglowny"]):
+                            if pog_data["profil_podstawowy"]:
+                                if text_val not in pog_data["profil_podstawowy"]:
+                                    pog_data["profil_podstawowy"] += f", {text_val}"
+                            else:
+                                pog_data["profil_podstawowy"] = text_val
+                        elif any(k in tag_clean for k in ["profildodatkowy", "profil_dodatkowy", "profildod", "profiluzupelniajacy"]):
+                            if pog_data["profil_dodatkowy"]:
+                                if text_val not in pog_data["profil_dodatkowy"]:
+                                    pog_data["profil_dodatkowy"] += f", {text_val}"
+                            else:
+                                pog_data["profil_dodatkowy"] = text_val
                         elif ("wysokosc" in tag_clean or "height" in tag_clean) and not any(u in tag_clean for u in ["jednostka", "unit", "uom"]):
                             if any(c.isdigit() for c in text_val):
                                 val_clean = text_val.lower().replace("m", "").strip()
@@ -571,13 +585,83 @@ def fetch_pog_data_for_parcel(parcel_gdf):
         "SWO": "Strefa wód",
         "SG": "Strefa górnicza"
     }
-    if not pog_data["strefa_nazwa"] and pog_data["strefa_symbol"]:
+
+    POG_STATUTORY_PROFILES = {
+        "SW": {
+            "podstawowy": "teren zabudowy mieszkaniowej wielorodzinnej, teren usług",
+            "dodatkowy": "teren zieleni urządzonej, teren komunikacji, teren infrastruktury technicznej"
+        },
+        "SJ": {
+            "podstawowy": "teren zabudowy mieszkaniowej jednorodzinnej, teren usług",
+            "dodatkowy": "teren zieleni urządzonej, teren komunikacji, teren infrastruktury technicznej"
+        },
+        "SU": {
+            "podstawowy": "teren usług",
+            "dodatkowy": "teren komunikacji, teren zieleni urządzonej, teren infrastruktury technicznej, teren zabudowy mieszkaniowej wielorodzinnej"
+        },
+        "SP": {
+            "podstawowy": "teren produkcji, teren infrastruktury technicznej, teren komunikacji",
+            "dodatkowy": "teren usług, teren zieleni naturalnej, teren lasu, teren wód"
+        },
+        "SH": {
+            "podstawowy": "teren produkcji, teren składów i magazynów, teren usług",
+            "dodatkowy": "teren komunikacji, teren infrastruktury technicznej, teren zieleni"
+        },
+        "SN": {
+            "podstawowy": "teren zieleni urządzonej, teren rekreacji i sportu",
+            "dodatkowy": "teren wód, teren lasu, teren usług turystyki i rekreacji"
+        },
+        "SOK": {
+            "podstawowy": "teren zieleni naturalnej, teren wód, teren lasu",
+            "dodatkowy": "teren rolniczy, teren rekreacji"
+        },
+        "SK": {
+            "podstawowy": "teren komunikacji",
+            "dodatkowy": "teren infrastruktury technicznej, teren zieleni"
+        },
+        "SC": {
+            "podstawowy": "teren cmentarzy",
+            "dodatkowy": "teren zieleni, teren komunikacji, teren infrastruktury technicznej"
+        },
+        "SR": {
+            "podstawowy": "teren rolniczy",
+            "dodatkowy": "teren zieleni naturalnej, teren lasu, teren wód"
+        },
+        "SL": {
+            "podstawowy": "teren lasu",
+            "dodatkowy": "teren wód, teren zieleni naturalnej"
+        },
+        "SWO": {
+            "podstawowy": "teren wód",
+            "dodatkowy": "teren zieleni naturalnej"
+        },
+        "SG": {
+            "podstawowy": "teren górnictwa i wydobycia",
+            "dodatkowy": "teren infrastruktury technicznej, teren komunikacji"
+        }
+    }
+
+    if pog_data.get("strefa_symbol"):
         sym_clean = re.sub(r'^[0-9]+', '', pog_data["strefa_symbol"]).upper()
-        if sym_clean in POG_ZONE_NAMES:
+        if not pog_data["strefa_nazwa"] and sym_clean in POG_ZONE_NAMES:
             pog_data["strefa_nazwa"] = POG_ZONE_NAMES[sym_clean]
 
+        m_code = re.search(r'([A-Za-z]+)', pog_data["strefa_symbol"])
+        code_prefix = m_code.group(1).upper() if m_code else sym_clean
+        target_prof = POG_STATUTORY_PROFILES.get(code_prefix) or POG_STATUTORY_PROFILES.get(sym_clean)
+        if target_prof:
+            if not pog_data.get("profil_podstawowy"):
+                pog_data["profil_podstawowy"] = target_prof["podstawowy"]
+            if not pog_data.get("profil_dodatkowy"):
+                pog_data["profil_dodatkowy"] = target_prof["dodatkowy"]
+
+    if pog_data.get("profil_podstawowy"):
+        pog_data["profil_podstawowy"] = fix_polish_encoding(pog_data["profil_podstawowy"])
+    if pog_data.get("profil_dodatkowy"):
+        pog_data["profil_dodatkowy"] = fix_polish_encoding(pog_data["profil_dodatkowy"])
+
     has_real_symbol = bool(pog_data["strefa_symbol"] and "brak" not in pog_data["strefa_symbol"].lower())
-    has_metrics = bool(pog_data["max_wysokosc_m"] or pog_data["min_biologicznie_czynna_pct"] or pog_data["max_intensywnosc_zabudowy"])
+    has_metrics = bool(pog_data["max_wysokosc_m"] or pog_data["min_biologicznie_czynna_pct"] or pog_data["max_intensywnosc_zabudowy"] or pog_data.get("profil_podstawowy"))
     pog_data["has_pog"] = has_real_symbol or has_metrics
 
     if not pog_data["strefa_symbol"]:
@@ -585,7 +669,7 @@ def fetch_pog_data_for_parcel(parcel_gdf):
     if not pog_data["strefa_nazwa"]:
         pog_data["strefa_nazwa"] = "Strefa planistyczna POG" if pog_data["has_pog"] else "Brak opublikowanego POG"
 
-    print(f"DEBUG RAW POG VALUES: gmina='{pog_data.get('gmina')}', uchwala='{pog_data.get('akt_planowania_uchwala')}', wys='{pog_data.get('max_wysokosc_m')}', bio='{pog_data.get('min_biologicznie_czynna_pct')}'", flush=True)
+    print(f"DEBUG RAW POG VALUES: gmina='{pog_data.get('gmina')}', uchwala='{pog_data.get('akt_planowania_uchwala')}', wys='{pog_data.get('max_wysokosc_m')}', bio='{pog_data.get('min_biologicznie_czynna_pct')}', prof_podst='{pog_data.get('profil_podstawowy')}', prof_dod='{pog_data.get('profil_dodatkowy')}'", flush=True)
 
     return pog_data
 
@@ -613,6 +697,8 @@ def analyze_pog_with_ai(pog_data_dict, lang="PL"):
     nazwa = pog_data_dict.get("strefa_nazwa") or "Strefa planistyczna POG"
     ouz = pog_data_dict.get("obszar_uzupelnienia_zabudowy_ouz") or "Brak / Nie dotyczy"
     ozs = pog_data_dict.get("obszar_zabudowy_srodmiejskiej_ozs") or "Brak / Nie dotyczy"
+    profil_podst = pog_data_dict.get("profil_podstawowy") or "Brak ustalenia"
+    profil_dod = pog_data_dict.get("profil_dodatkowy") or "Brak ustalenia"
 
     wys_val = str(pog_data_dict.get("max_wysokosc_m") or "").strip()
     if wys_val.lower() in ["m", "metr", "metry", "brak", "none"]:
@@ -642,6 +728,8 @@ Formatuj odpowiedź w przejrzystym języku Markdown z użyciem nagłówków, czy
 DANE Z PARSERA GML:
 - Gmina / Akt Prawny: {gmina_akt}
 - Strefa Planistyczna: {symbol} ({nazwa})
+- Profil Podstawowy: {profil_podst}
+- Profil Dodatkowy: {profil_dod}
 - Obszar Uzupełnienia Zabudowy (OUZ): {ouz}
 - Obszar Zabudowy Śródmiejskiej (OZS): {ozs}
 - Maksymalna wysokość (m): {wys_val}
@@ -652,9 +740,12 @@ DANE Z PARSERA GML:
 
 ZASADY GENEROWANIA KARTY:
 1. Skonsoliduj dane w przejrzystą tabelę Markdown.
-2. Klasyfikacja Strefy:
-   - Jeśli strefa ma charakter NIEOBJĘTY ZABUDOWĄ KUBATUROWĄ (np. symbol SN - zieleń, SP - rola, SOK - ochrona krajobrazu): W punkcie dotyczącym wysokości i intensywności napisz wprost: "Teren wyłączony z intensywnej zabudowy kubaturowej". NIE generuj wymijających tekstów "wymaga weryfikacji w MPZP".
-3. Ocena OUZ (Obszar Uzupełnienia Zabudowy):
+2. Analiza Profili Funkcjonalnych (art. 61 ust. 1 pkt 1a ustawy o planowaniu i zagospodarowaniu przestrzennym):
+   - Wskaż w rekomendacjach dopuszczalne funkcje podstawowe i uzupełniające.
+   - Jeśli funkcja mieszkaniowa (zabudowa mieszkaniowa) NIE występuje ani w profilu podstawowym, ani w profilu dodatkowym, sformułuj jednoznaczny wniosek: "Zakaz realizacji funkcji mieszkaniowej (brak w profilu strefy POG uniemożliwia uzyskanie WZ na budownictwo mieszkaniowe)".
+3. Klasyfikacja Strefy:
+   - Jeśli strefa ma charakter NIEOBJĘTY ZABUDOWĄ KUBATUROWĄ (np. symbol SN - zieleń, SP - rola/produkcja, SOK - ochrona krajobrazu): W punkcie dotyczącym wysokości i intensywności napisz wprost: "Teren wyłączony z intensywnej zabudowy kubaturowej". NIE generuj wymijających tekstów "wymaga weryfikacji w MPZP".
+4. Ocena OUZ (Obszar Uzupełnienia Zabudowy):
    - Jeśli OUZ przyjmuje wartość "Brak", "Nie dotyczy", "NIE" lub "False", dodaj jasną informację w sekcji wniosków: "Działka znajduje się poza OUZ – brak możliwości wydania decyzji o Warunkach Zabudowy (WZ)".
 
 WYMAGANY FORMAT ODPOWIEDZI (Markdown):
@@ -665,6 +756,8 @@ WYMAGANY FORMAT ODPOWIEDZI (Markdown):
 | :--- | :--- |
 | **Gmina / Akt Prawny** | {gmina_akt} |
 | **Strefa Planistyczna** | **{symbol}** - {nazwa} |
+| **Profil Podstawowy** | {profil_podst} |
+| **Profil Dodatkowy** | {profil_dod} |
 | **Obszar Uzupełnienia Zabudowy (OUZ)** | {ouz} |
 | **Obszar Zabudowy Śródmiejskiej (OZS)** | {ozs} |
 | **Min. Pow. Biologicznie Czynna** | **{bio_val}** |
@@ -672,8 +765,8 @@ WYMAGANY FORMAT ODPOWIEDZI (Markdown):
 | **Maks. Intensywność Zabudowy** | {intensywnosc} |
 
 #### Wnioski i Wytyczne Architektoniczne
-- **Potencjał Inwestycyjny:** [2-3 zwięzłe zdania określające czy i co można tu wybudować na podstawie strefy]
-- **Kluczowe Ograniczenia:** [Główne wymogi wynikające ze strefy oraz statusu OUZ/OZS]
+- **Potencjał Inwestycyjny:** [2-3 zwięzłe zdania określające czy i co można tu wybudować na podstawie profili strefy oraz statusu OUZ]
+- **Kluczowe Ograniczenia:** [Główne wymogi i zakazy wynikające ze strefy, profili funkcjonalnych (w tym ewentualny zakaz mieszkaniówki) oraz statusu OUZ/OZS]
 """
 
     config_params = types.GenerateContentConfig(
@@ -757,12 +850,17 @@ def analyze_planning_documents_with_ai(pog_data_dict: dict, mpzp_data_dict: dict
             else:
                 gmina_akt = "Brak danych"
 
+            profil_podst = pog_data_dict.get("profil_podstawowy") or "Brak ustalenia"
+            profil_dod = pog_data_dict.get("profil_dodatkowy") or "Brak ustalenia"
+
             pog_section = f"""### Karta Planistyczna POG
 
 | Parametr | Ustalenie POG |
 | :--- | :--- |
 | **Gmina / Akt Prawny** | {gmina_akt} |
 | **Strefa Planistyczna** | **{sym}** - {nazwa} |
+| **Profil Podstawowy** | {profil_podst} |
+| **Profil Dodatkowy** | {profil_dod} |
 | **Obszar Uzupełnienia Zabudowy (OUZ)** | {pog_data_dict.get("obszar_uzupelnienia_zabudowy_ouz") or "Nie dotyczy"} |
 | **Obszar Zabudowy Śródmiejskiej (OZS)** | {pog_data_dict.get("obszar_zabudowy_srodmiejskiej_ozs") or "Nie dotyczy"} |
 | **Min. Pow. Biologicznie Czynna** | **{bio_val}** |
