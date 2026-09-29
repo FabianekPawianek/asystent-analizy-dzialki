@@ -30,23 +30,23 @@ def fetch_building_polygons(bbox_epsg2180: tuple, radius_m: int = 1000) -> list:
         radius_m = 1000
     
     query = f"""
-    [out:json][timeout:10];
+    [out:json][timeout:12];
     (
       way["building"](around:{radius_m}, {center_lat:.6f}, {center_lon:.6f});
       relation["building"](around:{radius_m}, {center_lat:.6f}, {center_lon:.6f});
     );
-    out body;
-    >;
-    out skel qt;
+    out geom qt;
     """
     headers = {
-        'User-Agent': 'AsystentAnalizyDzialki/2.2 (PracaDyplomowa)',
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+        "User-Agent": "AAD_SolarAnalysis/2.1 (contact: project_aad_local@domain.local)",
+        "Accept": "application/json",
     }
     endpoints = [
-        "https://overpass-api.de/api/interpreter",
+        "https://overpass.openstreetmap.fr/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
-        "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
     ]
     
     building_polygons_2180 = []
@@ -54,16 +54,20 @@ def fetch_building_polygons(bbox_epsg2180: tuple, radius_m: int = 1000) -> list:
     
     for url in endpoints:
         try:
-            resp = requests.post(url, data={'data': query}, headers=headers, timeout=(3, 5))
+            resp = requests.post(url, data={'data': query}, headers=headers, timeout=(3.5, 9.0))
             if resp.status_code == 200:
                 data = resp.json()
                 elements = data.get("elements", [])
                 nodes = {elem["id"]: (elem["lon"], elem["lat"]) for elem in elements if elem.get("type") == "node"}
                 
                 for elem in elements:
-                    if elem.get("type") == "way" and "building" in elem.get("tags", {}):
-                        way_nodes = elem.get("nodes", [])
-                        coords_4326 = [nodes[nid] for nid in way_nodes if nid in nodes]
+                    elem_type = elem.get("type")
+                    if elem_type == "way":
+                        coords_4326 = []
+                        if "geometry" in elem and elem["geometry"]:
+                            coords_4326 = [(pt["lon"], pt["lat"]) for pt in elem["geometry"] if "lon" in pt and "lat" in pt]
+                        elif "nodes" in elem and nodes:
+                            coords_4326 = [nodes[nid] for nid in elem["nodes"] if nid in nodes]
                         if len(coords_4326) >= 3:
                             lons, lats = zip(*coords_4326)
                             xs, ys = transformer_to_2180.transform(lons, lats)
@@ -72,6 +76,18 @@ def fetch_building_polygons(bbox_epsg2180: tuple, radius_m: int = 1000) -> list:
                                 poly = poly.buffer(0)
                             if not poly.is_empty and poly.area > 5.0:
                                 building_polygons_2180.append(poly)
+                    elif elem_type == "relation":
+                        for member in elem.get("members", []):
+                            if member.get("role") in ["outer", ""] and "geometry" in member and member["geometry"]:
+                                coords_4326 = [(pt["lon"], pt["lat"]) for pt in member["geometry"] if "lon" in pt and "lat" in pt]
+                                if len(coords_4326) >= 3:
+                                    lons, lats = zip(*coords_4326)
+                                    xs, ys = transformer_to_2180.transform(lons, lats)
+                                    poly = Polygon(list(zip(xs, ys)))
+                                    if not poly.is_valid:
+                                        poly = poly.buffer(0)
+                                    if not poly.is_empty and poly.area > 5.0:
+                                        building_polygons_2180.append(poly)
                 if building_polygons_2180:
                     print(f"DEBUG BUILDINGS OVERPASS [{url}]: Successfully fetched {len(building_polygons_2180)} polygons.", flush=True)
                     return building_polygons_2180
@@ -79,7 +95,7 @@ def fetch_building_polygons(bbox_epsg2180: tuple, radius_m: int = 1000) -> list:
             print(f"DEBUG Overpass endpoint {url} failed: {e}", flush=True)
             continue
             
-    print(f"DEBUG BUILDINGS: Fallback to elevation difference mask (DSM - DTM > 2.8m).", flush=True)
+    print(f"DEBUG BUILDINGS: All Overpass mirrors failed. Returning empty list for DSM-DTM fallback.", flush=True)
     return building_polygons_2180
 
 
