@@ -1167,17 +1167,17 @@ if st.session_state.show_search or st.session_state.map_center:
     
     if st.session_state.selected_parcels:
         col_source, col_radius = st.columns([1, 1])
-        
+
         with col_source:
             view_3d_source = st.radio(
                 "Wybierz źródło modelu 3D:",
-                options=["OSM (Budynki)", "LiDAR (Geoportal)"],
+                options=["OSM (Proste bryły budynków)", "LiDAR (Laserowy skan otoczenia)"],
                 index=1,
                 horizontal=True,
                 key="view_3d_source_radio",
                 help="OSM pokazuje budynki z OpenStreetMap. LiDAR pokazuje dokładny model terenu z chmurą punktów."
             )
-        
+
         with col_radius:
             radius_3d = st.radio(
                 "Promień analizy (metry):",
@@ -1187,7 +1187,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 key="radius_3d",
                 help="Określa zasięg pobieranych danych wokół działki. Większy promień = więcej kontekstu, ale dłuższe ładowanie."
             )
-        
+
         show_3d_context = st.button(
             "Wygeneruj widok 3D otoczenia",
             key="generate_3d_button",
@@ -1198,7 +1198,7 @@ if st.session_state.show_search or st.session_state.map_center:
         if 'show_3d' not in st.session_state:
             st.session_state.show_3d = False
         if 'view_3d_source' not in st.session_state:
-            st.session_state.view_3d_source = "OSM (Budynki)"
+            st.session_state.view_3d_source = "OSM (Proste bryły budynków)"
         if 'radius_3d_value' not in st.session_state:
             st.session_state.radius_3d_value = 500
 
@@ -1219,16 +1219,16 @@ if st.session_state.show_search or st.session_state.map_center:
                 coords_wgs84_single = geospatial.transform_coordinates_to_wgs84(coords_2180)
                 all_coords.extend(coords_2180)
                 all_coords_wgs84.extend(coords_wgs84_single)
-            
+
             avg_x = sum(p[0] for p in all_coords) / len(all_coords)
             avg_y = sum(p[1] for p in all_coords) / len(all_coords)
             map_center_lon, map_center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
             map_center = (map_center_lat, map_center_lon)
 
             selected_map_style = "light"
-            
+
             use_lidar_3d = st.session_state.view_3d_source == "LiDAR (Geoportal)"
-            
+
             if use_lidar_3d:
                 minx = min(p[0] for p in all_coords)
                 maxx = max(p[0] for p in all_coords)
@@ -1236,25 +1236,25 @@ if st.session_state.show_search or st.session_state.map_center:
                 maxy = max(p[1] for p in all_coords)
                 buffer = st.session_state.radius_3d_value
                 current_lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
-                
+
                 parcel_ids_key = tuple(sorted([p['ID Działki'] for p in st.session_state.selected_parcels]))
                 cache_key = (current_lidar_bbox, parcel_ids_key)
-                
+
                 cached_bbox = st.session_state.get('lidar_3d_bbox')
                 cached_parcels = st.session_state.get('lidar_3d_parcels_key')
-                
-                needs_refresh = (cached_bbox != current_lidar_bbox or cached_parcels != parcel_ids_key 
+
+                needs_refresh = (cached_bbox != current_lidar_bbox or cached_parcels != parcel_ids_key
                                  or 'lidar_3d_deck' not in st.session_state)
-                
+
                 if needs_refresh:
                     with st.spinner("Pobieram dane LiDAR z Geoportalu i generuję model 3D..."):
                         try:
                             dsm_data, transform_dsm, dtm_data, dtm_transform = get_cached_lidar_data(current_lidar_bbox)
-                            
+
                             min_elevation = np.nanmin(dtm_data)
                             dsm_viz = dsm_data - min_elevation
                             dtm_viz = dtm_data - min_elevation
-                            
+
 
                             _svc_tmp = LidarService()
                             dsm_viz = _svc_tmp.apply_circular_mask(dsm_viz)
@@ -1269,7 +1269,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                         parcel_polygons_2180.append(poly)
                                     else:
                                         parcel_polygons_2180.append(poly.buffer(0))
-                            
+
                             is_building_mask = st.session_state.get('is_building_mask')
                             if is_building_mask is None or is_building_mask.shape != dsm_viz.shape:
                                 building_polygons = solar.fetch_building_polygons(current_lidar_bbox)
@@ -1278,7 +1278,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                     st.session_state['is_building_mask'] = is_building_mask
 
                             lidar_layers = []
-                            
+
                             pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
                                 dsm_viz, dtm_viz, transform_dsm, subsample=1,
                                 is_building_mask=is_building_mask,
@@ -1286,7 +1286,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             )
                             if pillars_layer:
                                 lidar_layers.append(pillars_layer)
-                            
+
                             surface_layer, _, _ = visualization.create_lidar_square_surface_layer(
                                 dsm_viz, transform_dsm, subsample=1,
                                 parcel_polygons_2180=parcel_polygons_2180,
@@ -1295,7 +1295,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             )
                             if surface_layer:
                                 lidar_layers.append(surface_layer)
-                            
+
                             view_state = pdk.ViewState(
                                 latitude=map_center[0],
                                 longitude=map_center[1],
@@ -1304,24 +1304,24 @@ if st.session_state.show_search or st.session_state.map_center:
                                 bearing=0,
                                 max_pitch=90
                             )
-                            
+
                             deck_3d_view = pdk.Deck(
                                 layers=lidar_layers,
                                 initial_view_state=view_state,
                                 map_style=selected_map_style
                             )
-                            
+
                             st.session_state['lidar_3d_deck'] = deck_3d_view
                             st.session_state['lidar_3d_bbox'] = current_lidar_bbox
 
                             st.session_state['lidar_3d_parcels_key'] = parcel_ids_key
-                            
+
                         except Exception as e:
                             st.error(f"Błąd pobierania danych LiDAR: {e}")
                             st.info("Przełączam na widok OSM...")
                             use_lidar_3d = False
                             st.session_state.pop('lidar_3d_deck', None)
-                
+
                 if use_lidar_3d and 'lidar_3d_deck' in st.session_state:
                     st.markdown("""
                     <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
@@ -1368,7 +1368,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                 use_container_width=True
                             )
 
-            
+
             if not use_lidar_3d:
                 with st.spinner("Generuję model 3D otoczenia..."):
                     all_parcel_coords_list = []
@@ -1383,7 +1383,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                 coords_closed = coords_wgs84_single
                             single_parcel_coords = [(p[1], p[0]) for p in coords_closed]
                             all_parcel_coords_list.append(single_parcel_coords)
-                    
+
                     osm_radius = st.session_state.radius_3d_value
                     if all_parcel_coords_list:
                         deck_3d_view = generate_3d_context_view_multiple_parcels(
@@ -1415,7 +1415,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 <p class="section-subtitle">Kliknij jedną z opcji aby rozpocząć</p>
             </div>
             """, unsafe_allow_html=True)
-            
+
             analysis_col1, analysis_col2, analysis_col3 = st.columns(3, gap="medium")
 
             if 'selected_analysis' not in st.session_state:
@@ -1437,8 +1437,8 @@ if st.session_state.show_search or st.session_state.map_center:
             with analysis_col2:
                 st.markdown("""
                 <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 250px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
-                    <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza POG (Plan Ogólny Gminy)</h3>
-                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Inteligentna analiza dokumentów planistycznych z wykorzystaniem AI (Google Gemini)</p>
+                    <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza Dokumentów</h3>
+                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Analiza POG (Planu Ogólnego Gminy) oraz MPZP (Miejscowego Planu Zagospodarowania Przestrzennego)</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1451,7 +1451,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 st.markdown("""
                 <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(224,109,83,0.08) 0%, rgba(200,80,60,0.08) 100%); border-radius: 20px; border: 2px solid rgba(224,109,83,0.3); min-height: 250px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
                     <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Koncepcja Kubaturowa</h3>
-                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Generuje humanistyczną bryłę 3D dopasowaną do słońca, POG i twoich życzeń</p>
+                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Generuje bryłę 3D dopasowaną do słońca, dokumentów planistycznych i twoich życzeń</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1471,17 +1471,17 @@ if st.session_state.show_search or st.session_state.map_center:
             """, unsafe_allow_html=True)
 
             col_src_solar, col_rad_solar = st.columns([1, 1])
-            
+
             with col_src_solar:
                 data_source = st.radio(
                     "Źródło danych 3D:",
-                    options=["OSM (Budynki)", "LiDAR (Geoportal)"],
+                    options=["OSM (Proste bryły budynków)", "LiDAR (Laserowy skan otoczenia)"],
                     index=1,
                     horizontal=True,
                     key="solar_data_source",
                     help="Wybierz źródło danych do analizy cienia. OSM jest szybsze, ale mniej dokładne. LiDAR uwzględnia teren, drzewa i kształty dachów."
                 )
-            
+
             with col_rad_solar:
                 radius_solar = st.radio(
                     "Promień analizy (metry):",
@@ -1491,7 +1491,7 @@ if st.session_state.show_search or st.session_state.map_center:
                     key="radius_solar",
                     help="Określa zasięg pobieranych danych wokół działki. Większy promień = dokładniejsze cienie, ale dłuższa analiza."
                 )
-            
+
             today = datetime(2025, 1, 1).date()
             selected_date_range = st.date_input(
                 "Wybierz dzień lub zakres dni analizy:",
@@ -1508,13 +1508,13 @@ if st.session_state.show_search or st.session_state.map_center:
                 index=0,
                 horizontal=True
             )
-            
+
             ignore_trees = st.checkbox(
                 "Uwzględnij tylko cienie budynków/ignoruj flore",
                 value=False,
                 help="https://www.researchgate.net/figure/Fig-12-Shading-of-trees-in-summer-and-winter_fig11_312383574"
             )
-            
+
             freq_map = {
                 "1 godzina": "1H",
                 "30 min": "30min",
@@ -1554,7 +1554,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 from shapely.geometry import Polygon as ShapelyPolygon
                 from shapely.ops import unary_union
                 import numpy as np
-                
+
                 shapely_polygons = []
                 for parcel in st.session_state.selected_parcels:
                     coords_2180 = parcel["Współrzędne EPSG:2180"]
@@ -1569,13 +1569,13 @@ if st.session_state.show_search or st.session_state.map_center:
                                     shapely_polygons.append(fixed_poly)
                         except:
                             continue
-                
+
                 if shapely_polygons:
                     if len(shapely_polygons) == 1:
                         combined_parcel_polygon = shapely_polygons[0]
                     else:
                         combined_parcel_polygon = unary_union(shapely_polygons)
-                    
+
                     if hasattr(combined_parcel_polygon, 'exterior'):
                         combined_coords = list(combined_parcel_polygon.exterior.coords)
                     else:
@@ -1584,7 +1584,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             combined_coords = list(largest_poly.exterior.coords)
                         else:
                             combined_coords = list(shapely_polygons[0].exterior.coords)
-                    
+
                     combined_parcel_data = {
                         "ID Działki": f"Połączone ({len(st.session_state.selected_parcels)} działek)",
                         "Współrzędne EPSG:2180": combined_coords
@@ -1593,11 +1593,11 @@ if st.session_state.show_search or st.session_state.map_center:
                 else:
                     primary_parcel = st.session_state.selected_parcels[0]
                     st.session_state.parcel_data = primary_parcel
-                
+
                 num_days = (end_date - start_date).days + 1
                 num_hours = hour_range[1] - hour_range[0] + 1
                 spinner_text = f"Przeprowadzam symulację dla {num_days} {'dzień' if num_days == 1 else 'dni'}, {num_hours} {'godzina' if num_hours == 1 else 'godzin'} (godz. {hour_range[0]}:00-{hour_range[1]}:00)..."
-                
+
                 with st.spinner(spinner_text):
 
                     if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
@@ -1705,9 +1705,9 @@ if st.session_state.show_search or st.session_state.map_center:
                         date_range = pd.date_range(start_date, end_date)
 
                         lidar_bbox = None
-                        use_lidar = (data_source == "LiDAR (Geoportal)")
+                        use_lidar = (data_source == "LiDAR (Laserowy skan otoczenia)")
                         progress_container = None
-                        
+
                         if use_lidar:
                             minx, miny, maxx, maxy = parcel_poly_2180.bounds
                             buffer = analysis_radius
@@ -1727,14 +1727,14 @@ if st.session_state.show_search or st.session_state.map_center:
                                 progress_container=progress_container,
                                 ignore_trees=ignore_trees
                             )
-                            
+
                             if result is None:
                                 continue
                             if not isinstance(result, np.ndarray):
                                 result = np.array(result, dtype=np.float32)
                             elif result.dtype != np.float32:
                                 result = result.astype(np.float32)
-                            
+
                             total_sunlit_hours += result
 
                         average_sunlit_hours = total_sunlit_hours / len(date_range)
@@ -1757,7 +1757,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             map_center_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True).transform(
                                 analysis_map_center[1], analysis_map_center[0])
                             sun_diagram_radius = float(analysis_radius)
-                        
+
                         sun_paths, analemmas, azimuth_markers, azimuth_lines, diagram_scale_factor = generate_complete_sun_path_diagram(
                             dome_center_wgs[0], dome_center_wgs[1], viz_date.year, map_center_metric,
                             scale_radius=sun_diagram_radius
@@ -1820,7 +1820,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                                                    "ignore_trees": ignore_trees}
                     else:
                         st.session_state.solar_analysis_results = None
-                
+
                 st.session_state['is_processing'] = False
                 st.rerun()
 
@@ -1830,7 +1830,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 if not data["results_df"].empty:
                     results_df = data["results_df"]
                     results_df = results_df.rename(columns={'sun_hours': 'value'})
-                    
+
                     min_h, max_h = results_df['value'].min(), results_df['value'].max()
                     if max_h == min_h: max_h += 1.0
 
@@ -1841,11 +1841,11 @@ if st.session_state.show_search or st.session_state.map_center:
                             coords_2180 = p_data['Współrzędne EPSG:2180']
                             p_coords_wgs = geospatial.transform_coordinates_to_wgs84(coords_2180)
                             parcel_coords.append(p_coords_wgs)
-                    
-                    is_lidar = data.get('data_source') == "LiDAR (Geoportal)"
-                    
+
+                    is_lidar = data.get('data_source') == "LiDAR (Laserowy skan otoczenia)"
+
                     diagram_scale = data.get('diagram_scale_factor', 1.0)
-                    
+
                     layers, _ = visualization.create_solar_analysis_layers(
                         parcel_coords_wgs_84=parcel_coords,
                         map_center_wgs_84=data['analysis_map_center'],
@@ -1858,7 +1858,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         scale_factor=diagram_scale
                     )
                     st.session_state['solar_analysis_surface_layer'] = layers
-                    
+
                     sun_positions_wgs84 = []
                     transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
                     for sp in data['sun_position_markers']:
@@ -1866,7 +1866,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         sun_positions_wgs84.append({
                             "position": [pos_wgs[0], pos_wgs[1], sp['position'][2]]
                         })
-                    
+
                     scale_factor = data.get('diagram_scale_factor', 1.0)
                     sun_marker_radius = 12 * scale_factor
                     sun_markers_layer = pdk.Layer("ScatterplotLayer", data=sun_positions_wgs84,
@@ -1945,8 +1945,8 @@ if st.session_state.show_search or st.session_state.map_center:
 
             st.markdown("""
             <div style="text-align: center; margin-bottom: 2rem;">
-                <h2>Analiza POG (Plan Ogólny Gminy)</h2>
-                <p class="section-subtitle">Analiza POG przez AI</p>
+                <h2>Analiza Dokumentów (Plan Ogólny Gminy)</h2>
+                <p class="section-subtitle">Analiza Dokumentów</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1954,7 +1954,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 st.session_state.pog_analysis_started = False
 
             if not st.session_state.pog_analysis_started:
-                start_btn = st.button("Rozpocznij analizę AI", key="run_pog_analysis", use_container_width=True)
+                start_btn = st.button("Rozpocznij analizę", key="run_pog_analysis", use_container_width=True)
                 if start_btn:
                     st.session_state.pog_analysis_started = True
 
@@ -1969,7 +1969,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             result = pog_agent.run_pog_analysis_flow(selected_parcel, status_callback=status_callback)
                             if result and result.get('status') == 'success':
                                 st.session_state.analysis_results = result
-                                agent_status.update(label="Analiza POG zakończona", state="complete", expanded=False)
+                                agent_status.update(label="Analiza dokumentów zakończona", state="complete", expanded=False)
                             else:
                                 agent_status.update(label="Błąd: Nie udało się pobrać wyników analizy", state="error")
                                 st.session_state.pog_analysis_started = False
@@ -2025,7 +2025,7 @@ if st.session_state.show_search or st.session_state.map_center:
             st.markdown("""
             <div style="text-align: center; margin-bottom: 2rem;">
                 <h2 style="color: #E06D53;">Generatywna Koncepcja Kubaturowa</h2>
-                <p class="section-subtitle">Humanistyczna generacja koncepcji 3D w zgodzie z nasłonecznieniem i POG</p>
+                <p class="section-subtitle">Humanistyczna generacja koncepcji 3D w zgodzie z nasłonecznieniem i dokumentami planistycznymi</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -2033,7 +2033,7 @@ if st.session_state.show_search or st.session_state.map_center:
             solar_ready = bool(st.session_state.get('solar_analysis_results'))
 
             if not (pog_ready and solar_ready):
-                st.warning("Aby wygenerować koncepcję kubaturową, przeprowadź najpierw Analizę POG oraz Analizę Nasłonecznienia.")
+                st.warning("Aby wygenerować koncepcję kubaturową, przeprowadź najpierw Analizę Dokumentów oraz Analizę Nasłonecznienia.")
                 col_p1, col_p2 = st.columns(2)
                 with col_p1:
                     if not solar_ready:
@@ -2044,25 +2044,25 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.success("✓ Analiza Nasłonecznienia wykonana")
                 with col_p2:
                     if not pog_ready:
-                        if st.button("Przejdź do Analizy POG", key="nav_to_pog", use_container_width=True):
+                        if st.button("Przejdź do Analizy Dokumentów", key="nav_to_pog", use_container_width=True):
                             st.session_state.selected_analysis = "pog"
                             st.rerun()
                     else:
-                        st.success("✓ Analiza POG wykonana")
+                        st.success("✓ Analiza Dokumentów wykonana")
             else:
                 user_massing_prompt = st.text_area(
-                    "Opisz swoje życzenia projektowe (np. dom jednorodzinny, poranne słońce na tarasie)",
+                    "Opisz swoje życzenia projektowe (np. typ budynku, orientacja, rodzaj dachu)",
                     key="user_massing_prompt_input",
                     height=100
                 )
 
                 col_m1, col_m2, col_m3 = st.columns([1, 2, 1])
                 with col_m2:
-                    run_massing_btn = st.button("Wygeneruj Koncepcję Kubaturową AI", key="run_generative_massing_btn", use_container_width=True)
+                    run_massing_btn = st.button("Wygeneruj Koncepcję Kubaturową", key="run_generative_massing_btn", use_container_width=True)
 
                 if run_massing_btn:
                     st.session_state.user_massing_prompt_value = user_massing_prompt
-                    with st.spinner("Generuję humanistyczną koncepcję kubaturową 3D..."):
+                    with st.spinner("Generuję koncepcję kubaturową 3D..."):
                         parcel_poly_2180 = None
                         if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
                             coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]
@@ -2074,13 +2074,13 @@ if st.session_state.show_search or st.session_state.map_center:
                         if parcel_poly_2180 is not None:
                             pog_data = st.session_state.get('analysis_results')
                             solar_data = st.session_state.get('solar_analysis_results')
-                            
+
                             solar_grid_points = solar_data.get('grid_points_metric') if (solar_data and isinstance(solar_data, dict)) else None
                             sunlit_hours = solar_data.get('sunlit_hours') if (solar_data and isinstance(solar_data, dict)) else None
-                            
+
                             minx, miny, maxx, maxy = parcel_poly_2180.bounds
                             lidar_bbox = (minx - 100, miny - 100, maxx + 100, maxy + 100)
-                            
+
                             try:
                                 dsm_data, transform, dtm_data, _ = get_cached_lidar_data(lidar_bbox)
                             except Exception:
@@ -2102,10 +2102,10 @@ if st.session_state.show_search or st.session_state.map_center:
                                 transform=transform,
                                 user_intent=user_massing_prompt
                             )
-                            
+
                             st.session_state.generative_massing_points = massing_points
                             st.session_state.generative_intent_info = intent_info
-                            
+
                             if massing_points:
                                 st.success(f"Pomyślnie wygenerowano koncepcję kubaturową 3D ({len(massing_points)} woksali).")
                             else:
@@ -2115,16 +2115,16 @@ if st.session_state.show_search or st.session_state.map_center:
 
             if st.session_state.get('generative_massing_points'):
                 massing_points = st.session_state.generative_massing_points
-                
+
                 all_layers = list(st.session_state.get('lidar_point_cloud_layer', []))
-                
+
                 if st.session_state.get('solar_analysis_surface_layer'):
                     solar_surface = st.session_state['solar_analysis_surface_layer']
                     if isinstance(solar_surface, list):
                         all_layers.extend(solar_surface)
                     else:
                         all_layers.append(solar_surface)
-                        
+
                 massing_layer = visualization.create_generative_volume_layer(massing_points)
                 if massing_layer:
                     all_layers.append(massing_layer)
