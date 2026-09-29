@@ -300,6 +300,14 @@ def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.nd
 import modules.solar as solar
 from modules.lidar_service import LidarService
 
+
+def get_parcel_buildings(current_bbox):
+    # Check strictly if key exists. Do not re-fetch if list is empty!
+    if 'cached_building_polygons' not in st.session_state:
+        st.session_state['cached_building_polygons'] = solar.fetch_building_polygons(current_bbox, radius_m=1000)
+    return st.session_state.get('cached_building_polygons', [])
+
+
 @st.cache_data(show_spinner=False)
 def get_cached_lidar_data(bbox):
     if not bbox or len(bbox) != 4 or any(c is None or not np.isfinite(c) or c == 0 for c in bbox) or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
@@ -307,11 +315,43 @@ def get_cached_lidar_data(bbox):
         print(f"DEBUG LIDAR ERROR: {err_msg}", flush=True)
         raise ValueError(err_msg)
 
+    try:
+        cached_parent = st.session_state.get('cached_parent_lidar')
+        if cached_parent:
+            p_dsm, p_dtm, p_transform, p_bbox = cached_parent
+            if (p_bbox[0] <= bbox[0] + 1.0 and p_bbox[1] <= bbox[1] + 1.0 and
+                p_bbox[2] >= bbox[2] - 1.0 and p_bbox[3] >= bbox[3] - 1.0):
+                import rasterio.windows
+                window = rasterio.windows.from_bounds(bbox[0], bbox[1], bbox[2], bbox[3], transform=p_transform)
+                window = window.intersection(rasterio.windows.Window(0, 0, p_dsm.shape[1], p_dsm.shape[0]))
+                row_start = int(max(0, round(window.row_off)))
+                row_end = int(min(p_dsm.shape[0], round(window.row_off + window.height)))
+                col_start = int(max(0, round(window.col_off)))
+                col_end = int(min(p_dsm.shape[1], round(window.col_off + window.width)))
+                if (row_end > row_start) and (col_end > col_start):
+                    dsm_crop = p_dsm[row_start:row_end, col_start:col_end].copy()
+                    dtm_crop = p_dtm[row_start:row_end, col_start:col_end].copy()
+                    crop_transform = rasterio.windows.transform(window, p_transform)
+                    print(f"DEBUG LIDAR: Cropped target sub-window directly from RAM in 0.001s! Shape={dsm_crop.shape}", flush=True)
+                    return dsm_crop, crop_transform, dtm_crop, crop_transform
+    except Exception as e_crop:
+        print(f"DEBUG LIDAR: In-memory crop check failed ({e_crop}), falling back to WCS fetch.", flush=True)
+
     print(f"DEBUG get_cached_lidar_data called with valid BBOX={bbox} (width={bbox[2]-bbox[0]:.1f}m, height={bbox[3]-bbox[1]:.1f}m)", flush=True)
     try:
         lidar_service = LidarService()
         dsm_data, transform = lidar_service.get_dsm_data(bbox, apply_circular_mask=False)
         dtm_data, dtm_transform = lidar_service.get_dtm_data(bbox, apply_circular_mask=False)
+
+        try:
+            cached_parent = st.session_state.get('cached_parent_lidar')
+            cur_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            parent_area = ((cached_parent[3][2] - cached_parent[3][0]) * (cached_parent[3][3] - cached_parent[3][1])) if cached_parent else 0
+            if cur_area >= parent_area:
+                st.session_state['cached_parent_lidar'] = (dsm_data, dtm_data, transform, bbox)
+        except Exception:
+            pass
+
         return dsm_data, transform, dtm_data, dtm_transform
     except Exception as e:
         print(f"DEBUG LIDAR GENERATION CRASH in get_cached_lidar_data: {traceback.format_exc()}", flush=True)
@@ -333,7 +373,7 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
         
         is_building_mask = None
         if lidar_bbox:
-            building_polygons = solar.fetch_building_polygons(lidar_bbox)
+            building_polygons = get_parcel_buildings(lidar_bbox)
             is_building_mask = solar.create_building_mask(dsm_data.shape, _transform, building_polygons, dsm_data=dsm_data, dtm_data=dtm_data)
 
         print(f"DEBUG SOLAR: Running simulation with ignore_trees={ignore_trees}.", flush=True)
@@ -423,7 +463,7 @@ def get_solar_3d_obj_bytes(lidar_bbox, parcel_geoms_wkt, grid_points_metric, sun
         lidar_service = LidarService()
 
         if ignore_trees:
-            building_polygons = solar.fetch_building_polygons(lidar_bbox)
+            building_polygons = get_parcel_buildings(lidar_bbox)
             is_building_mask = solar.create_building_mask(dsm_raw.shape, transform, building_polygons, dsm_data=dsm_raw, dtm_data=dtm_raw)
             dsm_raw = np.where(is_building_mask, dsm_raw, dtm_raw)
 
@@ -516,7 +556,7 @@ def run_solar_simulation(
                         parcel_geoms_wkt.append(p_data['Geometria'])
             
             if lidar_bbox:
-                building_polygons = solar.fetch_building_polygons(lidar_bbox)
+                building_polygons = get_parcel_buildings(lidar_bbox)
                 is_building_mask = solar.create_building_mask(dsm_data.shape, transform, building_polygons, dsm_data=dsm_data, dtm_data=dtm_data)
                 st.session_state['is_building_mask'] = is_building_mask
 
@@ -1075,7 +1115,8 @@ if st.session_state.show_search or st.session_state.map_center:
             'selected_analysis', 'analysis_results', 'pog_analysis_started',
             'solar_analysis_results', 'solar_grid_points', 'lidar_point_cloud_layer',
             'generative_massing_layer', 'generative_massing_deck', 'mpzp_data',
-            'pog_data', 'current_lidar_bbox', 'is_building_mask'
+            'pog_data', 'current_lidar_bbox', 'is_building_mask',
+            'cached_building_polygons', 'cached_parent_lidar'
         ]
         for k in reset_keys:
             if k in st.session_state:
@@ -1279,7 +1320,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
                             is_building_mask = st.session_state.get('is_building_mask')
                             if is_building_mask is None or is_building_mask.shape != dsm_viz.shape:
-                                building_polygons = solar.fetch_building_polygons(current_lidar_bbox)
+                                building_polygons = get_parcel_buildings(current_lidar_bbox)
                                 if building_polygons:
                                     is_building_mask = solar.create_building_mask(dsm_viz.shape, transform_dsm, building_polygons, dsm_data=dsm_viz, dtm_data=dtm_viz)
                                     st.session_state['is_building_mask'] = is_building_mask
@@ -1641,57 +1682,29 @@ if st.session_state.show_search or st.session_state.map_center:
                         else:
                             analysis_map_center = (53.4285, 14.5511)
 
-                    try:
-                        gdf_buildings_wgs84 = ox.features_from_point(
-                            (analysis_map_center[0], analysis_map_center[1]),
-                            {"building": True},
-                            dist=analysis_radius
-                        )
-                        if not gdf_buildings_wgs84.empty:
-                            gdf_buildings_metric = gdf_buildings_wgs84.to_crs("epsg:2180")
-                        else:
-                            gdf_buildings_metric = gpd.GeoDataFrame()
-                    except Exception as e_osmnx:
-                        print(f"DEBUG OSMNX: Failed to fetch features via osmnx: {e_osmnx}", flush=True)
-                        gdf_buildings_metric = gpd.GeoDataFrame()
+                    p_coords_ref = None
+                    if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
+                        p_coords_ref = st.session_state.parcel_data["Współrzędne EPSG:2180"]
+                    elif st.session_state.selected_parcels:
+                        p_coords_ref = st.session_state.selected_parcels[0]["Współrzędne EPSG:2180"]
 
-                    buildings_data_metric = []
-
-                    def est_h(r):
-                        try:
-                            if 'height' in r and r['height'] and str(r['height']).strip(): return float(
-                                str(r['height']).split(';')[0])
-                            if 'building:levels' in r and r['building:levels'] and str(
-                                r['building:levels']).strip(): return float(
-                                str(r['building:levels']).split(';')[0]) * 3.5 + 2
-                        except (ValueError, TypeError):
-                            pass
-                        return 10.0
-
-                    if not gdf_buildings_metric.empty:
-                        gdf_buildings_metric['height'] = gdf_buildings_metric.apply(est_h, axis=1)
-                        for _, building in gdf_buildings_metric.iterrows():
-                            if building.geometry and building.geometry.geom_type in ['Polygon', 'MultiPolygon']:
-                                polygons = [
-                                    building.geometry] if building.geometry.geom_type == 'Polygon' else building.geometry.geoms
-                                for p in polygons: buildings_data_metric.append(
-                                    {"polygon": list(p.exterior.coords), "height": building.height})
+                    if p_coords_ref and len(p_coords_ref) > 0:
+                        p_minx = min(p[0] for p in p_coords_ref) - analysis_radius
+                        p_miny = min(p[1] for p in p_coords_ref) - analysis_radius
+                        p_maxx = max(p[0] for p in p_coords_ref) + analysis_radius
+                        p_maxy = max(p[1] for p in p_coords_ref) + analysis_radius
+                        analysis_bbox = (p_minx, p_miny, p_maxx, p_maxy)
                     else:
-                        try:
-                            if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
-                                p_coords = st.session_state.parcel_data["Współrzędne EPSG:2180"]
-                                p_minx = min(p[0] for p in p_coords) - analysis_radius
-                                p_miny = min(p[1] for p in p_coords) - analysis_radius
-                                p_maxx = max(p[0] for p in p_coords) + analysis_radius
-                                p_maxy = max(p[1] for p in p_coords) + analysis_radius
-                                b_polys = solar.fetch_building_polygons((p_minx, p_miny, p_maxx, p_maxy))
-                                for b_p in b_polys:
-                                    buildings_data_metric.append({
-                                        "polygon": list(b_p.exterior.coords),
-                                        "height": 10.0
-                                    })
-                        except Exception as e_fallback:
-                            print(f"DEBUG BUILDINGS FALLBACK: {e_fallback}", flush=True)
+                        analysis_bbox = (500000 - analysis_radius, 500000 - analysis_radius, 500000 + analysis_radius, 500000 + analysis_radius)
+
+                    b_polys = get_parcel_buildings(analysis_bbox)
+                    buildings_data_metric = []
+                    for b_p in b_polys:
+                        if hasattr(b_p, 'exterior') and b_p.exterior:
+                            buildings_data_metric.append({
+                                "polygon": list(b_p.exterior.coords),
+                                "height": 10.0
+                            })
 
                     if st.session_state.parcel_data and "Współrzędne EPSG:2180" in st.session_state.parcel_data:
                         coords_2180 = st.session_state.parcel_data["Współrzędne EPSG:2180"]

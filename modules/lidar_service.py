@@ -260,6 +260,20 @@ class LidarService:
             traceback.print_exc()
             raise
 
+    @staticmethod
+    def crop_raster_to_bbox(data: np.ndarray, transform, target_bbox: tuple):
+        import rasterio.windows
+        window = rasterio.windows.from_bounds(target_bbox[0], target_bbox[1], target_bbox[2], target_bbox[3], transform=transform)
+        window = window.intersection(rasterio.windows.Window(0, 0, data.shape[1], data.shape[0]))
+        row_start = int(max(0, round(window.row_off)))
+        row_end = int(min(data.shape[0], round(window.row_off + window.height)))
+        col_start = int(max(0, round(window.col_off)))
+        col_end = int(min(data.shape[1], round(window.col_off + window.width)))
+        
+        cropped_data = data[row_start:row_end, col_start:col_end].copy()
+        cropped_transform = rasterio.windows.transform(window, transform)
+        return cropped_data, cropped_transform
+
     def convert_dsm_to_trimesh(self, data, transform, downsample_factor=4):
         try:
             if np.isnan(data).any():

@@ -18,7 +18,7 @@ import geopandas as gpd
 import xml.etree.ElementTree as ET
 
 
-def fetch_building_polygons(bbox_epsg2180: tuple) -> list:
+def fetch_building_polygons(bbox_epsg2180: tuple, radius_m: int = 1000) -> list:
     minx, miny, maxx, maxy = bbox_epsg2180
     center_x = (minx + maxx) / 2.0
     center_y = (miny + maxy) / 2.0
@@ -26,10 +26,11 @@ def fetch_building_polygons(bbox_epsg2180: tuple) -> list:
     transformer = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
     center_lon, center_lat = transformer.transform(center_x, center_y)
     
-    radius_m = int(max(maxx - minx, maxy - miny) / 2.0 + 150)
+    if radius_m is None:
+        radius_m = 1000
     
     query = f"""
-    [out:json][timeout:30];
+    [out:json][timeout:10];
     (
       way["building"](around:{radius_m}, {center_lat:.6f}, {center_lon:.6f});
       relation["building"](around:{radius_m}, {center_lat:.6f}, {center_lon:.6f});
@@ -53,7 +54,7 @@ def fetch_building_polygons(bbox_epsg2180: tuple) -> list:
     
     for url in endpoints:
         try:
-            resp = requests.post(url, data={'data': query}, headers=headers, timeout=30)
+            resp = requests.post(url, data={'data': query}, headers=headers, timeout=(3, 5))
             if resp.status_code == 200:
                 data = resp.json()
                 elements = data.get("elements", [])
