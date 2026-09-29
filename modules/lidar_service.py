@@ -27,31 +27,45 @@ class LidarService:
     def __init__(self):
         pass
 
-    def _fetch_with_retry(self, base_url, params=None, timeout=300):
+    def _fetch_with_retry(self, base_url, params=None, timeout=300, coverage_type="WCS", bbox=None):
         max_retries = 3
         retry_delay = 5
         headers = {'User-Agent': 'Mozilla/5.0 (compatible; SolarAnalysisBot/1.0)'}
 
         for attempt in range(max_retries):
             try:
-                response = requests.get(base_url, params=params, stream=True, timeout=timeout, headers=headers)
+                print(f"DEBUG WCS REQUEST [{coverage_type}]: URL={base_url} BBOX={bbox} (attempt {attempt + 1}/{max_retries})", flush=True)
+                print(f"DEBUG WCS PARAMS [{coverage_type}]: {params}", flush=True)
+
+                response = requests.get(base_url, params=params, timeout=timeout, headers=headers)
+
+                content_len = len(response.content) if response.content is not None else 0
+                content_type = response.headers.get('Content-Type')
+                print(f"DEBUG WCS RESPONSE [{coverage_type}]: Status={response.status_code}, Length={content_len} bytes, Content-Type={content_type}", flush=True)
+
+                is_error = response.status_code != 200 or any(
+                    err in response.text[:500] for err in ["ServiceException", "Exception", "502", "503", "400", "html", "HTML", "Error"]
+                )
+                if is_error:
+                    print(f"DEBUG WCS ERROR BODY [{coverage_type}]: {response.text[:500]}", flush=True)
+
                 if response.status_code != 200:
-                    try:
-                        error_content = response.content.decode('utf-8', errors='ignore')[:500]
-                    except:
-                        error_content = "Could not read error content"
-                    logger.error(f"HTTP Error {response.status_code}: {error_content}")
                     response.raise_for_status()
 
                 return response
             except (requests.exceptions.RequestException, http.client.RemoteDisconnected) as e:
-                logger.warning(f"Network error during WCS fetch (attempt {attempt + 1}/{max_retries}): {e}")
+                print(f"DEBUG WCS NETWORK EXCEPTION [{coverage_type}] (attempt {attempt + 1}/{max_retries}): {e}", flush=True)
+                import traceback
+                traceback.print_exc()
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                 else:
                     logger.error("Max retries reached. Giving up.")
                     raise
             except Exception as e:
+                print(f"DEBUG WCS EXCEPTION [{coverage_type}]: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
                 raise e
 
     def _apply_circular_mask(self, data, transform=None):
@@ -87,6 +101,9 @@ class LidarService:
 
 
     def get_dsm_data(self, bbox, crs="EPSG:2180", width=None, height=None, res_x=None, res_y=None, coverage_id=None, apply_circular_mask: bool = True):
+        coverage_type = "DSM"
+        wcs_url = self.WCS_DSM_URL
+        print(f"DEBUG WCS REQUEST [{coverage_type}]: URL={wcs_url} BBOX={bbox}", flush=True)
         try:
             if coverage_id is None:
                 coverage_id = self.DEFAULT_COVERAGE
@@ -116,19 +133,18 @@ class LidarService:
 
             logger.info(f"Manual Request Params: {params}")
 
-            http_response = self._fetch_with_retry(self.WCS_DSM_URL, params=params, timeout=300)
+            http_response = self._fetch_with_retry(wcs_url, params=params, timeout=300, coverage_type=coverage_type, bbox=bbox)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix='.asc') as tmp_file:
-                for chunk in http_response.iter_content(chunk_size=8192):
-                    tmp_file.write(chunk)
+                tmp_file.write(http_response.content)
                 tmp_path = tmp_file.name
 
             with open(tmp_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content_preview = f.read(500)
-            print(f"DEBUG FILE CONTENT: {content_preview}")
             
-            if content_preview.strip().startswith('<'):
-                raise ValueError(f"Server returned XML error instead of data: {content_preview}")
+            if content_preview.strip().startswith('<') or any(err in content_preview for err in ["ServiceException", "Exception", "Error"]):
+                print(f"DEBUG WCS ERROR BODY [{coverage_type}]: {content_preview[:500]}", flush=True)
+                raise ValueError(f"Server returned XML error instead of data: {content_preview[:500]}")
 
             try:
                 try:
@@ -142,7 +158,9 @@ class LidarService:
 
                     error_msg = f"Rasterio failed to open file. Content preview:\n{content_preview}"
                     logger.error(error_msg)
-                    print(f"DEBUG: {error_msg}")
+                    print(f"DEBUG WCS ERROR BODY [{coverage_type}]: {content_preview[:500]}", flush=True)
+                    import traceback
+                    traceback.print_exc()
                     raise Exception(f"WCS Error or Invalid Format: {rasterio_error}. Server response: {content_preview}")
 
                 if nodata is not None:
@@ -158,9 +176,14 @@ class LidarService:
 
         except Exception as e:
             logger.error(f"Critical error in get_dsm_data: {e}")
+            import traceback
+            traceback.print_exc()
             raise
 
     def get_dtm_data(self, bbox, crs="EPSG:2180", width=None, height=None, res_x=None, res_y=None, coverage_id=None, apply_circular_mask: bool = True):
+        coverage_type = "DTM"
+        wcs_url = self.WCS_DTM_URL
+        print(f"DEBUG WCS REQUEST [{coverage_type}]: URL={wcs_url} BBOX={bbox}", flush=True)
         try:
             if coverage_id is None:
                 coverage_id = self.DEFAULT_DTM_COVERAGE
@@ -190,19 +213,18 @@ class LidarService:
 
             logger.info(f"Manual DTM Request Params: {params}")
 
-            http_response = self._fetch_with_retry(self.WCS_DTM_URL, params=params, timeout=300)
+            http_response = self._fetch_with_retry(wcs_url, params=params, timeout=300, coverage_type=coverage_type, bbox=bbox)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix='.asc') as tmp_file:
-                for chunk in http_response.iter_content(chunk_size=8192):
-                    tmp_file.write(chunk)
+                tmp_file.write(http_response.content)
                 tmp_path = tmp_file.name
 
             with open(tmp_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content_preview = f.read(500)
-            print(f"DEBUG FILE CONTENT: {content_preview}")
             
-            if content_preview.strip().startswith('<'):
-                raise ValueError(f"Server returned XML error instead of data: {content_preview}")
+            if content_preview.strip().startswith('<') or any(err in content_preview for err in ["ServiceException", "Exception", "Error"]):
+                print(f"DEBUG WCS ERROR BODY [{coverage_type}]: {content_preview[:500]}", flush=True)
+                raise ValueError(f"Server returned XML error instead of data: {content_preview[:500]}")
 
             try:
                 try:
@@ -216,7 +238,9 @@ class LidarService:
 
                     error_msg = f"Rasterio failed to open DTM file. Content preview:\n{content_preview}"
                     logger.error(error_msg)
-                    print(f"DEBUG: {error_msg}")
+                    print(f"DEBUG WCS ERROR BODY [{coverage_type}]: {content_preview[:500]}", flush=True)
+                    import traceback
+                    traceback.print_exc()
                     raise Exception(f"WCS DTM Error or Invalid Format: {rasterio_error}. Server response: {content_preview}")
 
                 if nodata is not None:
@@ -232,12 +256,14 @@ class LidarService:
 
         except Exception as e:
             logger.error(f"Error fetching LiDAR DTM data: {e}")
+            import traceback
+            traceback.print_exc()
             raise
 
     def convert_dsm_to_trimesh(self, data, transform, downsample_factor=4):
         try:
             if np.isnan(data).any():
-                min_val = np.nanmin(data)
+                min_val = np.nanmin(data) if not np.isnan(data).all() else 0.0
                 data = np.nan_to_num(data, nan=min_val)
 
             if downsample_factor > 1:
@@ -282,11 +308,11 @@ class LidarService:
                 if 0 <= r < rows and 0 <= c < cols:
                     val = raster_data[r, c]
                     if np.isnan(val):
-                        z_values.append(np.nanmin(raster_data))
+                        z_values.append(np.nanmin(raster_data) if not np.isnan(raster_data).all() else 0.0)
                     else:
                         z_values.append(val)
                 else:
-                    z_values.append(np.nanmin(raster_data) if not np.isnan(raster_data).all() else 0)
+                    z_values.append(np.nanmin(raster_data) if not np.isnan(raster_data).all() else 0.0)
 
             return np.array(z_values)
 
@@ -451,11 +477,11 @@ class LidarService:
                     parsed_parcel_geoms.append(g)
 
         if dtm_data is not None:
-            min_elevation = np.nanmin(dtm_data)
+            min_elevation = np.nanmin(dtm_data) if not np.isnan(dtm_data).all() else 0.0
             dsm_norm = dsm_data - min_elevation
             dtm_norm = dtm_data - min_elevation
         else:
-            min_elevation = np.nanmin(dsm_data)
+            min_elevation = np.nanmin(dsm_data) if not np.isnan(dsm_data).all() else 0.0
             dsm_norm = dsm_data - min_elevation
             dtm_norm = dsm_norm
 

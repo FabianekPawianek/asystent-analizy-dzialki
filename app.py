@@ -19,6 +19,7 @@ from pyproj import Transformer
 from urllib.parse import quote_plus
 import platform
 import geopandas as gpd
+import traceback
 
 # st.cache_data.clear()
 import os
@@ -309,71 +310,85 @@ from modules.lidar_service import LidarService
 
 @st.cache_data(show_spinner=False)
 def get_cached_lidar_data(bbox):
-    lidar_service = LidarService()
-    dsm_data, transform = lidar_service.get_dsm_data(bbox, apply_circular_mask=False)
-    dtm_data, dtm_transform = lidar_service.get_dtm_data(bbox, apply_circular_mask=False)
-    return dsm_data, transform, dtm_data, dtm_transform
+    if not bbox or len(bbox) != 4 or any(c is None or not np.isfinite(c) or c == 0 for c in bbox) or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        err_msg = f"Nieprawidłowy BBOX LiDAR w układzie EPSG:2180: {bbox}"
+        print(f"DEBUG LIDAR ERROR: {err_msg}", flush=True)
+        raise ValueError(err_msg)
+
+    print(f"DEBUG get_cached_lidar_data called with valid BBOX={bbox} (width={bbox[2]-bbox[0]:.1f}m, height={bbox[3]-bbox[1]:.1f}m)", flush=True)
+    try:
+        lidar_service = LidarService()
+        dsm_data, transform = lidar_service.get_dsm_data(bbox, apply_circular_mask=False)
+        dtm_data, dtm_transform = lidar_service.get_dtm_data(bbox, apply_circular_mask=False)
+        return dsm_data, transform, dtm_data, dtm_transform
+    except Exception as e:
+        print(f"DEBUG LIDAR GENERATION CRASH in get_cached_lidar_data: {traceback.format_exc()}", flush=True)
+        raise e
 
 @st.cache_data(show_spinner=False)
 def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parcel_geoms_wkt, grid_points_metric, calc_downsample: int = 4, ignore_trees: bool = False, lidar_bbox: tuple = None):
-    parcel_geoms = [wkt.loads(g) for g in parcel_geoms_wkt]
-    
-    lidar_service = LidarService()
+    try:
+        parcel_geoms = [wkt.loads(g) for g in parcel_geoms_wkt]
+        
+        lidar_service = LidarService()
 
-    dsm_data = lidar_service.apply_circular_mask(dsm_data, _transform)
-    dtm_data = lidar_service.apply_circular_mask(dtm_data, _dtm_transform)
-    
-    min_elevation = np.nanmin(dtm_data)
-    dsm_data = dsm_data - min_elevation
-    dtm_data = dtm_data - min_elevation
-    
-    is_building_mask = None
-    if lidar_bbox:
-        building_polygons = solar.fetch_building_polygons(lidar_bbox)
-        is_building_mask = solar.create_building_mask(dsm_data.shape, _transform, building_polygons, dsm_data=dsm_data, dtm_data=dtm_data)
+        dsm_data = lidar_service.apply_circular_mask(dsm_data, _transform)
+        dtm_data = lidar_service.apply_circular_mask(dtm_data, _dtm_transform)
+        
+        min_elevation = np.nanmin(dtm_data) if not np.isnan(dtm_data).all() else 0.0
+        dsm_data = dsm_data - min_elevation
+        dtm_data = dtm_data - min_elevation
+        
+        is_building_mask = None
+        if lidar_bbox:
+            building_polygons = solar.fetch_building_polygons(lidar_bbox)
+            is_building_mask = solar.create_building_mask(dsm_data.shape, _transform, building_polygons, dsm_data=dsm_data, dtm_data=dtm_data)
 
-    print(f"DEBUG SOLAR: Running simulation with ignore_trees={ignore_trees}.", flush=True)
+        print(f"DEBUG SOLAR: Running simulation with ignore_trees={ignore_trees}.", flush=True)
 
-    if ignore_trees and is_building_mask is not None:
-        dsm_for_calc = np.where(is_building_mask, dsm_data, dtm_data)
-        dsm_for_viz = np.where(is_building_mask, dsm_data, dtm_data)
-    else:
-        dsm_for_calc = dsm_data.copy()
-        dsm_for_viz = dsm_data.copy()
+        if ignore_trees and is_building_mask is not None:
+            dsm_for_calc = np.where(is_building_mask, dsm_data, dtm_data)
+            dsm_for_viz = np.where(is_building_mask, dsm_data, dtm_data)
+        else:
+            dsm_for_calc = dsm_data.copy()
+            dsm_for_viz = dsm_data.copy()
 
-    dtm_for_viz = dtm_data.copy()
+        dtm_for_viz = dtm_data.copy()
 
-    if parcel_geoms:
-        dsm_for_calc = lidar_service.flatten_dsm_on_parcel(dsm_for_calc, dtm_data, _transform, parcel_geoms, fill_with_nan=False)
-        dsm_for_viz = lidar_service.flatten_dsm_on_parcel(dsm_for_viz, dtm_data, _transform, parcel_geoms, fill_with_nan=True)
-        dtm_for_viz = lidar_service.flatten_dsm_on_parcel(dtm_for_viz, dtm_data, _transform, parcel_geoms, fill_with_nan=True)
-    
-    lidar_layers = []
-    
-    pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
-        dsm_for_viz, dtm_for_viz, _transform, subsample=1,
-        is_building_mask=is_building_mask,
-        parcel_polygons_2180=parcel_geoms
-    )
-    if pillars_layer:
-        lidar_layers.append(pillars_layer)
-    
-    surface_layer, _, _ = visualization.create_lidar_square_surface_layer(
-        dsm_for_viz, _transform, subsample=1,
-        parcel_polygons_2180=parcel_geoms,
-        is_building_mask=is_building_mask,
-        dtm_data=dtm_for_viz
-    )
-    if surface_layer:
-        lidar_layers.append(surface_layer)
-    
-    print(f"DEBUG: Creating Trimesh with downsample_factor={calc_downsample} (ignore_trees={ignore_trees})", flush=True)
-    scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, _transform, downsample_factor=calc_downsample)
-    
-    z_values = lidar_service.sample_height_for_points(dtm_data, _dtm_transform, grid_points_metric[:, :2])
-    grid_points_metric[:, 2] = z_values + 0.5
-    
-    return scene, grid_points_metric, lidar_layers
+        if parcel_geoms:
+            dsm_for_calc = lidar_service.flatten_dsm_on_parcel(dsm_for_calc, dtm_data, _transform, parcel_geoms, fill_with_nan=False)
+            dsm_for_viz = lidar_service.flatten_dsm_on_parcel(dsm_for_viz, dtm_data, _transform, parcel_geoms, fill_with_nan=True)
+            dtm_for_viz = lidar_service.flatten_dsm_on_parcel(dtm_for_viz, dtm_data, _transform, parcel_geoms, fill_with_nan=True)
+        
+        lidar_layers = []
+        
+        pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
+            dsm_for_viz, dtm_for_viz, _transform, subsample=1,
+            is_building_mask=is_building_mask,
+            parcel_polygons_2180=parcel_geoms
+        )
+        if pillars_layer:
+            lidar_layers.append(pillars_layer)
+        
+        surface_layer, _, _ = visualization.create_lidar_square_surface_layer(
+            dsm_for_viz, _transform, subsample=1,
+            parcel_polygons_2180=parcel_geoms,
+            is_building_mask=is_building_mask,
+            dtm_data=dtm_for_viz
+        )
+        if surface_layer:
+            lidar_layers.append(surface_layer)
+        
+        print(f"DEBUG: Creating Trimesh with downsample_factor={calc_downsample} (ignore_trees={ignore_trees})", flush=True)
+        scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, _transform, downsample_factor=calc_downsample)
+        
+        z_values = lidar_service.sample_height_for_points(dtm_data, _dtm_transform, grid_points_metric[:, :2])
+        grid_points_metric[:, 2] = z_values + 0.5
+        
+        return scene, grid_points_metric, lidar_layers
+    except Exception as e:
+        print(f"DEBUG LIDAR GENERATION CRASH in prepare_lidar_geometry: {traceback.format_exc()}", flush=True)
+        raise e
 
 @st.cache_resource(show_spinner=False)
 def get_cached_lidar_mesh(bbox, downsample: int = 4):
@@ -524,6 +539,7 @@ def run_solar_simulation(
             st.session_state['lidar_point_cloud_layer'] = lidar_layers
             
         except Exception as e:
+            print(f"DEBUG LIDAR GENERATION CRASH (Solar simulation): {traceback.format_exc()}", flush=True)
             st.error(f"Błąd pobierania danych LiDAR: {e}. Przełączam na tryb OSM.")
             buildings_data_metric = [
                 {'polygon': b_tuple[0], 'height': b_tuple[1]} for b_tuple in _buildings_data_metric_tuple
@@ -1198,7 +1214,7 @@ if st.session_state.show_search or st.session_state.map_center:
         if 'show_3d' not in st.session_state:
             st.session_state.show_3d = False
         if 'view_3d_source' not in st.session_state:
-            st.session_state.view_3d_source = "OSM (Proste bryły budynków)"
+            st.session_state.view_3d_source = "LiDAR (Laserowy skan otoczenia)"
         if 'radius_3d_value' not in st.session_state:
             st.session_state.radius_3d_value = 500
 
@@ -1227,7 +1243,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
             selected_map_style = "light"
 
-            use_lidar_3d = st.session_state.view_3d_source == "LiDAR (Geoportal)"
+            use_lidar_3d = "lidar" in str(st.session_state.view_3d_source).lower()
 
             if use_lidar_3d:
                 minx = min(p[0] for p in all_coords)
@@ -1251,7 +1267,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         try:
                             dsm_data, transform_dsm, dtm_data, dtm_transform = get_cached_lidar_data(current_lidar_bbox)
 
-                            min_elevation = np.nanmin(dtm_data)
+                            min_elevation = np.nanmin(dtm_data) if not np.isnan(dtm_data).all() else 0.0
                             dsm_viz = dsm_data - min_elevation
                             dtm_viz = dtm_data - min_elevation
 
@@ -1317,7 +1333,8 @@ if st.session_state.show_search or st.session_state.map_center:
                             st.session_state['lidar_3d_parcels_key'] = parcel_ids_key
 
                         except Exception as e:
-                            st.error(f"Błąd pobierania danych LiDAR: {e}")
+                            print(f"DEBUG LIDAR GENERATION CRASH: {traceback.format_exc()}", flush=True)
+                            st.error(f"Błąd generowania danych LiDAR: {e}")
                             st.info("Przełączam na widok OSM...")
                             use_lidar_3d = False
                             st.session_state.pop('lidar_3d_deck', None)
@@ -1347,26 +1364,30 @@ if st.session_state.show_search or st.session_state.map_center:
                     obj_filename = f"Model_3D_{clean_addr}_{current_date}.obj"
                     xyz_filename = f"Punkty_XYZ_{clean_addr}_{current_date}.xyz"
 
-                    col_1, col_2 = st.columns(2, gap="large")
+                    try:
+                        col_1, col_2 = st.columns(2, gap="large")
 
-                    with col_1:
-                        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                        with col_btn2:
-                            st.download_button(
-                                label="Pobierz model 3D `.obj`",
-                                data=get_lidar_raw_obj_bytes(current_lidar_bbox),
-                                file_name=obj_filename,
-                                use_container_width=True
-                            )
-                    with col_2:
-                        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                        with col_btn2:
-                            st.download_button(
-                                label="Pobierz chmurę punktów `.xyz`",
-                                data=get_lidar_raw_xyz_bytes(current_lidar_bbox),
-                                file_name=xyz_filename,
-                                use_container_width=True
-                            )
+                        with col_1:
+                            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                            with col_btn2:
+                                st.download_button(
+                                    label="Pobierz model 3D `.obj`",
+                                    data=get_lidar_raw_obj_bytes(current_lidar_bbox),
+                                    file_name=obj_filename,
+                                    use_container_width=True
+                                )
+                        with col_2:
+                            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+                            with col_btn2:
+                                st.download_button(
+                                    label="Pobierz chmurę punktów `.xyz`",
+                                    data=get_lidar_raw_xyz_bytes(current_lidar_bbox),
+                                    file_name=xyz_filename,
+                                    use_container_width=True
+                                )
+                    except Exception as export_err:
+                        print(f"DEBUG LIDAR EXPORT ERROR: {traceback.format_exc()}", flush=True)
+                        st.warning(f"Nie udało się przygotować plików do pobrania: {export_err}")
 
 
             if not use_lidar_3d:
