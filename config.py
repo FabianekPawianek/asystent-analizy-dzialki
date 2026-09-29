@@ -1,27 +1,9 @@
 import os
-import platform
 
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-3.5-flash-lite"
 EMBEDDING_MODEL_NAME = "text-embedding-004"
 UNIVERSE_DOMAIN = "googleapis.com"
-
-def setup_tesseract():
-    if platform.system() == 'Windows':
-        possible_paths = [
-            r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-            r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-            r'C:\Users\{}\AppData\Local\Tesseract-OCR\tesseract.exe'.format(os.getenv('USERNAME', ''))
-        ]
-        for path in possible_paths:
-            if os.path.exists(path):
-                try:
-                    import pytesseract
-                    pytesseract.pytesseract.tesseract_cmd = path
-                    return True
-                except ImportError:
-                    pass
-    return False
 
 def get_google_api_key(secrets=None):
     api_key = os.getenv('GOOGLE_API_KEY')

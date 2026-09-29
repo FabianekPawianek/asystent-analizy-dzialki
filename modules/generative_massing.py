@@ -173,7 +173,6 @@ def generate_massing_volume(
 ) -> list:
 
     try:
-        # 1. Process Parcel Geometry in EPSG:2180
         poly = None
         if isinstance(parcel_geometry, (Polygon, MultiPolygon)):
             poly = parcel_geometry

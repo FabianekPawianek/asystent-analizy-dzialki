@@ -1,36 +1,28 @@
+import os
 import streamlit as st
 import time
-import json
-import requests
+import traceback
+from datetime import datetime
 import folium
+from streamlit_folium import st_folium
+import geopandas as gpd
+import numpy as np
 import osmnx as ox
 import pandas as pd
-import pydeck as pdk
-import numpy as np
 import pvlib
-import trimesh
-import open3d as o3d
-from datetime import datetime
-from shapely.geometry import (Polygon)
-from shapely import wkt
-from shapely.ops import transform
-from streamlit_folium import st_folium
+import pydeck as pdk
 from pyproj import Transformer
-from urllib.parse import quote_plus
-import platform
-import geopandas as gpd
-import traceback
+from shapely.geometry import Polygon
+from shapely.ops import transform
+from shapely import wkt
+import trimesh
 
-# st.cache_data.clear()
-import os
 import config
 import modules.geospatial as geospatial
 import modules.solar as solar
 import modules.visualization as visualization
 import modules.pog_agent as pog_agent
 import modules.generative_massing as generative_massing
-
-config.setup_tesseract()
 
 try:
     API_KEY = config.get_google_api_key(st.secrets)
@@ -452,7 +444,6 @@ def get_solar_3d_obj_bytes(lidar_bbox, parcel_geoms_wkt, grid_points_metric, sun
 
 
 
-# @st.cache_data
 def run_solar_simulation(
         _buildings_data_metric_tuple: tuple,
         grid_points_metric: np.ndarray,
@@ -2046,7 +2037,7 @@ if st.session_state.show_search or st.session_state.map_center:
             st.markdown("""
             <div style="text-align: center; margin-bottom: 2rem;">
                 <h2 style="color: #E06D53;">Generatywna Koncepcja Kubaturowa</h2>
-                <p class="section-subtitle">Humanistyczna generacja koncepcji 3D w zgodzie z nasłonecznieniem i dokumentami planistycznymi</p>
+                <p class="section-subtitle">Generacja koncepcji 3D w zgodzie z nasłonecznieniem i dokumentami planistycznymi</p>
             </div>
             """, unsafe_allow_html=True)
 

@@ -96,10 +96,8 @@ def _extract_bbox_and_poly(parcel_gdf):
 
 
 def fix_polish_encoding(text: str) -> str:
-    """Repairs double-encoded or Latin1-decoded UTF-8 Polish text strings."""
     if not text or not isinstance(text, str):
         return text if text is not None else ""
-    # Only attempt fix if typical Mojibake artifact characters exist
     if any(c in text for c in ['Ã', 'Ä', 'Å']):
         try:
             return text.encode('latin1').decode('utf-8')
@@ -109,28 +107,19 @@ def fix_polish_encoding(text: str) -> str:
 
 
 def is_valid_web_document_url(url: str) -> bool:
-    """
-    Sprawdza czy URL jest prawidłowym linkiem do dokumentu lub strony BIP/Dziennika,
-    a nie formalnym identyfikatorem zbioru/obiektu APP GML ani legendą.
-    """
     if not url or not isinstance(url, str) or not url.startswith("http"):
         return False
     u_l = url.lower()
-    # Reject formal spatial dataset identifiers / schema URIs
     if "gov.pl/zagospodarowanieprzestrzenne" in u_l or "gov.pl/zagospodarowanieprzestrzenne/app" in u_l:
         return False
     if any(bad in u_l for bad in ["legenda", "_legenda", "legend"]):
         return False
-    # Accept actual files or active portal pages
     if any(ext in u_l for ext in [".pdf", ".tif", ".tiff", ".geotiff", ".jpg", ".png", "bip", "edziennik", "duwo", "dzu", "wykazplanow", "view"]):
         return True
     return True
 
 
 def parse_geoserver_feature_info_html(html_text: str):
-    """
-    Ekstrahuje atrybuty tabelaryczne oraz linki URL z odpowiedzi GeoServer GetFeatureInfo (HTML).
-    """
     attributes = {}
     links = re.findall(r'href=[\'"]([^\'"]+)[\'"]', html_text, re.IGNORECASE)
 
@@ -172,11 +161,6 @@ def parse_geoserver_feature_info_html(html_text: str):
 
 
 def fetch_mpzp_kimpzp(parcel_gdf) -> dict:
-    """
-    Pobiera dane o MPZP z oficjalnej usługi GUGiK KIMPZP.
-    Używa wyłącznie sprawdzonych warstw roboczych: 'plany,granice' (bez app:PrzeznaczenieTerenu).
-    Filtruje i odrzuca wszelkie linki prowadzące do plików legendy (legenda / _legenda).
-    """
     minx, miny, maxx, maxy, geom = _extract_bbox_and_poly(parcel_gdf)
 
     mpzp_data = {
@@ -360,10 +344,6 @@ def fetch_mpzp_kimpzp(parcel_gdf) -> dict:
 
 
 def _parse_gml_into_pog_data(xml_text: str, pog_data: dict) -> bool:
-    """
-    Parsuje odpowiedź GML/XML z usług WMS/WFS POG i uzupełnia słownik pog_data.
-    Zwraca True, jeśli znaleziono istotne parametry strefy lub aktu.
-    """
     if not xml_text or len(xml_text.strip()) < 50:
         return False
     found_data = False
@@ -480,10 +460,6 @@ def _parse_gml_into_pog_data(xml_text: str, pog_data: dict) -> bool:
 
 
 def fetch_pog_data_for_parcel(parcel_gdf):
-    """
-    Pobiera dane o Planie Ogólnym Gminy (POG) z oficjalnych usług WFS/WMS Geoportalu oraz usług gminnych.
-    Obsługuje m.in. centralny Geoportal, gminne serwisy e-mapa.net oraz projektowane plany ogólne.
-    """
     minx, miny, maxx, maxy, geom = _extract_bbox_and_poly(parcel_gdf)
     bbox_str = f"{minx},{miny},{maxx},{maxy}"
     bbox_crs_str = f"{minx},{miny},{maxx},{maxy},EPSG:2180"
@@ -507,8 +483,7 @@ def fetch_pog_data_for_parcel(parcel_gdf):
         "raw_attributes": {}
     }
 
-    # 1. EXTRACT 6-DIGIT TERYT
-    teryt_6 = "326201"  # fallback
+    teryt_6 = "326201"
     if isinstance(parcel_gdf, dict):
         for k in ["ID Działki", "TERYT", "teryt", "id", "id_dzialki", "identyfikator"]:
             v = str(parcel_gdf.get(k, "")).strip()
@@ -529,7 +504,6 @@ def fetch_pog_data_for_parcel(parcel_gdf):
         if m:
             teryt_6 = m.group(1)
 
-    # 2. EXPAND POG WMS SERVICE CANDIDATES
     pog_endpoints = [
         "https://mapy.geoportal.gov.pl/wss/ext/PlanyOgolneGmin",
         f"https://wms.e-mapa.net/cgi-bin/pog/{teryt_6}",
@@ -540,7 +514,6 @@ def fetch_pog_data_for_parcel(parcel_gdf):
     response_text = None
     found_valid_pog = False
 
-    # 3. QUERY WMS GETFEATUREINFO
     for endpoint in pog_endpoints:
         if found_valid_pog:
             break
@@ -808,9 +781,6 @@ def fetch_pog_data_for_parcel(parcel_gdf):
 
 
 def analyze_pog_with_ai(pog_data_dict, lang="PL"):
-    """
-    Generuje pełną Kartę Planistyczną POG na podstawie pobranych parametrów GML.
-    """
     global client
     if client is None:
         init_ai()
@@ -917,12 +887,6 @@ WYMAGANY FORMAT ODPOWIEDZI (Markdown):
 
 
 def analyze_planning_documents_with_ai(pog_data_dict: dict, mpzp_data_dict: dict, lang="PL") -> str:
-    """
-    Zintegrowana prezentacja stanu planistycznego:
-    1. Prezentuje status MPZP (obowiązuje z nazwą i uchwałą lub brak planu).
-    2. Jeśli POG istnieje w WFS (np. Koszalin) - prezentuje PEŁNĄ Kartę Planistyczną POG.
-    3. Jeśli brak POG w WFS - jasno informuje o braku opublikowanego POG w WFS.
-    """
     has_mpzp = mpzp_data_dict.get("has_mpzp", False) if isinstance(mpzp_data_dict, dict) else False
     nazwa_planu = mpzp_data_dict.get("nazwa_planu") if has_mpzp else None
     numer_uchwaly = mpzp_data_dict.get("numer_uchwaly") if has_mpzp else None
@@ -1007,9 +971,6 @@ def analyze_planning_documents_with_ai(pog_data_dict: dict, mpzp_data_dict: dict
 
 
 def run_pog_analysis_flow(parcel_gdf, status_callback=None, lang="PL"):
-    """
-    Główny zintegrowany przepływ analizy planistycznej (MPZP + POG).
-    """
     if status_callback:
         status_callback("info", "Weryfikacja MPZP (KIMPZP) oraz Planu Ogólnego (WMS Geoportal)...")
 
