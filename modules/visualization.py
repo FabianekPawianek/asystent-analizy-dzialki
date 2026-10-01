@@ -60,25 +60,25 @@ def map_sunlit_hours_to_rgba(sunlit_hours, min_val=None, max_val=None, colormap=
     return rgba_uint8
 
 def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
-    if min_val == max_val:
+    if min_val >= max_val:
         rgba = mpl.colormaps[colormap](0.5)
         rgb = f"rgb({int(rgba[0] * 255)}, {int(rgba[1] * 255)}, {int(rgba[2] * 255)})"
         label = f"{min_val:.1f}h"
-        header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
-        title = "<div style='margin-bottom: 8px;'><b>Czas nasłonecznienia [h]</b></div>"
-        content = f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 35px; background: {rgb};'></div><div>{label}</div></div>"
+        header = "<div class='solar-legend-container'>"
+        title = "<div class='solar-legend-title'>Czas nasłonecznienia [h]</div>"
+        content = f"<div class='solar-legend-items'><div class='solar-legend-item'><div class='solar-legend-color' style='background: {rgb};'></div><div class='solar-legend-label'>{label}</div></div></div>"
         return f"{header}{title}{content}</div>"
 
     values = np.linspace(min_val, max_val, steps)
     colors = mpl.colormaps[colormap](np.linspace(0, 0.90, steps))
-    header = "<div style='font-family: sans-serif; font-size: 13px; background: rgba(40,40,40,0.85); color: white; padding: 10px; border-radius: 5px; border: 1px solid #555;'>"
-    title = "<div style='margin-bottom: 8px;'><b>Czas nasłonecznienia [h]</b></div>"
-    content = "<div style='display: flex; flex-direction: row; align-items: center; justify-content: space-between;'>"
+    header = "<div class='solar-legend-container'>"
+    title = "<div class='solar-legend-title'>Czas nasłonecznienia [h]</div>"
+    content = "<div class='solar-legend-items'>"
 
     for i in range(steps):
         rgb = f"rgb({int(colors[i][0] * 255)}, {int(colors[i][1] * 255)}, {int(colors[i][2] * 255)})"
         label = f"{values[i]:.1f}h"
-        content += f"<div style='text-align: center; margin: 0 4px;'><div style='width: 35px; height: 35px; background: {rgb};'></div><div>{label}</div></div>"
+        content += f"<div class='solar-legend-item'><div class='solar-legend-color' style='background: {rgb};'></div><div class='solar-legend-label'>{label}</div></div>"
 
     return f"{header}{title}{content}</div></div>"
 

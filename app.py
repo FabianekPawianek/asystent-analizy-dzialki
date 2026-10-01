@@ -621,12 +621,10 @@ st.markdown("""
         display: none !important;
     }
 
-    /* Hide Streamlit branding footer */
     footer {
         display: none !important;
     }
 
-    /* Prevent gray overlay during rerun - ULTRA AGGRESSIVE FIX */
     .main, .stApp, [data-testid="stAppViewContainer"], .element-container {
         transition: none !important;
         filter: none !important;
@@ -634,39 +632,33 @@ st.markdown("""
         pointer-events: auto !important;
     }
 
-    /* Override ALL Streamlit overlays */
     .stApp::before, .stApp::after {
         display: none !important;
     }
 
-    /* Force disable the dimming effect */
     div[data-baseweb="modal"] {
         background: none !important;
     }
 
-    /* Main container with blue→green gradient background */
     .main {
         background: linear-gradient(135deg, #e3f2fd 0%, #e8f5e9 50%, #f1f8e9 100%);
         font-family: 'Inter', sans-serif;
     }
 
-    /* Hide scrollbar but keep functionality */
     ::-webkit-scrollbar {
         width: 0px;
         background: transparent;
     }
 
-    /* For Firefox */
     * {
         scrollbar-width: none;
     }
 
-    /* Section containers - FULL SCREEN with snap points */
     .stApp > div > div {
         background: rgba(255, 255, 255, 0.7);
         backdrop-filter: blur(10px);
         border-radius: 16px;
-        padding: 3rem;
+        padding: clamp(1rem, 3vw, 3rem) !important;
         margin: 0;
         min-height: 100vh;
         border: 1px solid rgba(40, 167, 69, 0.2);
@@ -684,36 +676,34 @@ st.markdown("""
         box-shadow: 0 6px 24px 0 rgba(40, 167, 69, 0.15);
     }
 
-    /* Block-level elements */
     .block-container {
-        padding-top: 3rem;
-        padding-bottom: 3rem;
-        padding-left: 4rem;
-        padding-right: 4rem;
+        container-type: inline-size;
+        padding-top: clamp(1rem, 3vh, 3rem) !important;
+        padding-bottom: clamp(1rem, 3vh, 3rem) !important;
+        padding-left: clamp(10px, 3.5vw, 32px) !important;
+        padding-right: clamp(10px, 3.5vw, 32px) !important;
+        max-width: 100% !important;
     }
 
-    /* H1 - Main Title (Always dominant, never wraps) */
     .stApp h1, .main-title {
         color: #1a237e !important;
         font-weight: 700;
         letter-spacing: -0.5px;
-        animation: fadeInDown 0.6s ease;
-        text-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);
         white-space: nowrap !important;
         word-break: keep-all !important;
         text-align: center !important;
-        font-size: clamp(1.8rem, 4.2vw, 3.2rem) !important;
+        font-size: clamp(1.4rem, 6.8vw, 3.0rem) !important;
+        font-size: clamp(1.4rem, 7.2cqw, 3.0rem) !important;
         width: 100% !important;
         margin: 0 auto 0.5rem auto !important;
         line-height: 1.2 !important;
     }
 
-    /* H2 - Section Titles (Always proportionally smaller than H1) */
     .stApp h2, .main h2, .stMarkdown h2 {
         color: #2e7d32 !important;
         font-weight: 600;
         letter-spacing: -0.3px;
-        font-size: clamp(1.25rem, 2.6vw, 2.0rem) !important;
+        font-size: clamp(1.15rem, 4.5cqw, 2.0rem) !important;
         text-align: center !important;
         line-height: 1.3 !important;
         margin-top: 1.2rem !important;
@@ -722,24 +712,23 @@ st.markdown("""
         hyphens: none !important;
     }
 
-    /* H3 - Cards & Sub-sections */
     .stApp h3, .main h3, .stMarkdown h3, .analysis-card h3 {
         color: #2e7d32 !important;
         font-weight: 600;
         letter-spacing: -0.3px;
-        font-size: clamp(1.05rem, 1.8vw, 1.4rem) !important;
+        font-size: clamp(1.0rem, 3.2cqw, 1.4rem) !important;
         line-height: 1.3 !important;
         word-break: keep-all !important;
         hyphens: none !important;
     }
 
-    /* Captions & Subtitles below headings */
     .main-subtitle, .stMarkdown p.subtitle, .section-subtitle {
-        font-size: clamp(0.8rem, 1.1vw, 0.95rem) !important;
+        font-size: clamp(0.85rem, 2.2cqw, 1.05rem) !important;
         text-align: center !important;
         color: #616161 !important;
         line-height: 1.4 !important;
     }
+
 
     @keyframes fadeInDown {
         from {
@@ -752,7 +741,6 @@ st.markdown("""
         }
     }
 
-    /* Input fields styling */
     input, textarea {
         background: rgba(255, 255, 255, 0.9) !important;
         border: 2px solid rgba(40, 167, 69, 0.3) !important;
@@ -768,54 +756,165 @@ st.markdown("""
         background: #ffffff !important;
     }
 
-    /* Hide header anchor links and ensure true centering */
     [data-testid="stHeaderActionElements"],
     a.header-anchor,
     .stMarkdown h1 a, .stMarkdown h2 a, .stMarkdown h3 a {
         display: none !important;
     }
 
-    /* Prevent button text wrapping into two lines like 'Wybie rz' */
-    .stButton button, .stDownloadButton button {
+    .stButton {
+        width: 100% !important;
+    }
+
+    .stDownloadButton,
+    [data-testid="stDownloadButton"] {
+        white-space: nowrap !important;
+        min-width: max-content !important;
+        width: 100% !important;
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.stButton) {
+        flex-wrap: wrap !important;
+        gap: 0.75rem !important;
+    }
+
+    [data-testid="stHorizontalBlock"]:has(.stDownloadButton),
+    [data-testid="stHorizontalBlock"]:has([data-testid="stDownloadButton"]) {
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        align-items: center !important;
+        gap: 0.75rem !important;
+    }
+
+    [data-testid="column"]:has(.stButton) {
+        min-width: 260px !important;
+        flex: 1 1 260px !important;
+    }
+
+    [data-testid="column"]:has(.stDownloadButton),
+    [data-testid="column"]:has([data-testid="stDownloadButton"]) {
+        min-width: max-content !important;
+        flex: 1 1 auto !important;
+    }
+
+    .stButton button, .stDownloadButton button, [data-testid="stDownloadButton"] button {
         background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
         color: white !important;
         border: none !important;
         border-radius: 12px !important;
-        padding: 10px 24px !important;
+        padding: 10px 20px !important;
         font-weight: 600 !important;
-        font-size: 16px !important;
+        font-size: clamp(0.85rem, 1.2vw, 1rem) !important;
         transition: all 0.3s ease !important;
         box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3) !important;
         white-space: nowrap !important;
         word-break: keep-all !important;
         overflow-wrap: normal !important;
-        min-width: 130px !important;
+        min-width: 0 !important;
+        width: 100% !important;
+        height: auto !important;
+        text-align: center !important;
     }
 
-    .stButton button:hover, .stDownloadButton button:hover {
+    .stDownloadButton button, [data-testid="stDownloadButton"] button {
+        min-width: max-content !important;
+    }
+
+    .stButton button p, .stDownloadButton button p, [data-testid="stDownloadButton"] button p {
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        overflow-wrap: normal !important;
+        text-align: center !important;
+        margin: 0 !important;
+    }
+
+    .stButton button:hover, .stDownloadButton button:hover, [data-testid="stDownloadButton"] button:hover {
         transform: translateY(-2px) !important;
         box-shadow: 0 6px 25px rgba(40, 167, 69, 0.5) !important;
     }
 
-    /* Universal card header and typography styling */
+    [data-testid="stHorizontalBlock"]:has(.analysis-card) {
+        display: flex !important;
+        align-items: stretch !important;
+    }
+
+    [data-testid="column"]:has(.analysis-card) {
+        display: flex !important;
+        flex-direction: column !important;
+        height: auto !important;
+    }
+
+    [data-testid="column"]:has(.analysis-card) > div,
+    [data-testid="column"]:has(.analysis-card) [data-testid="stVerticalBlockBorderWrapper"],
+    [data-testid="column"]:has(.analysis-card) [data-testid="stVerticalBlock"] {
+        display: flex !important;
+        flex-direction: column !important;
+        flex: 1 1 auto !important;
+        height: 100% !important;
+        justify-content: space-between !important;
+        gap: 0px !important;
+    }
+
+    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:first-child,
+    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:first-child > div,
+    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:first-child .stMarkdown,
+    [data-testid="column"]:has(.analysis-card) .element-container:first-child,
+    [data-testid="column"]:has(.analysis-card) .element-container:first-child > div,
+    [data-testid="column"]:has(.analysis-card) .element-container:first-child .stMarkdown {
+        display: flex !important;
+        flex-direction: column !important;
+        flex: 1 1 auto !important;
+        height: 100% !important;
+    }
+
+    .analysis-card {
+        flex: 1 1 auto !important;
+        height: 100% !important;
+        min-height: 280px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+        box-sizing: border-box !important;
+        margin-bottom: 16px !important;
+        padding: 2.25rem 1.5rem !important;
+    }
+
     .analysis-card h3 {
         color: #424242 !important;
-        font-size: clamp(1.05rem, 1.8vw, 1.4rem) !important;
+        font-size: clamp(1.0rem, 3.2cqw, 1.4rem) !important;
         line-height: 1.3 !important;
         word-break: keep-all !important;
         hyphens: none !important;
         text-align: center !important;
+        margin-top: 0 !important;
+        margin-bottom: 0.75rem !important;
+        min-height: 2.8em !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
     .analysis-card p {
-        font-size: clamp(0.8rem, 1.1vw, 0.95rem) !important;
+        font-size: clamp(0.85rem, 2.2cqw, 1.05rem) !important;
         text-align: justify !important;
         text-justify: inter-word !important;
         line-height: 1.5 !important;
+        margin-bottom: 0 !important;
+        flex: 1 1 auto !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        min-height: 5rem !important;
     }
 
-    /* FORCE GREEN COLOR ON ALL PRIMARY ELEMENTS - Override Streamlit cache */
-    /* Slider styling */
+    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:has(.stButton),
+    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:last-child,
+    [data-testid="column"]:has(.analysis-card) .element-container:last-child,
+    [data-testid="column"]:has(.analysis-card) .stButton {
+        margin-top: auto !important;
+        padding-top: 0 !important;
+    }
+
     div[data-baseweb="slider"] div[role="slider"] {
         background-color: #28a745 !important;
         box-shadow: 0 0 15px rgba(40, 167, 69, 0.5) !important;
@@ -825,23 +924,19 @@ st.markdown("""
         background: linear-gradient(90deg, #28a745 0%, #20c997 100%) !important;
     }
 
-    /* Slider track fill */
     div[data-baseweb="slider"] div[data-testid="stSliderTickBarMin"] {
         background-color: #28a745 !important;
     }
 
-    /* Slider thumb */
     div[data-baseweb="slider"] div[role="slider"]::before {
         background-color: #28a745 !important;
     }
 
-    /* Radio buttons & checkboxes */
     div[data-testid="stRadio"] > div[role="radiogroup"] > label > div:first-child {
         background-color: #28a745 !important;
         box-shadow: 0 0 10px rgba(40, 167, 69, 0.3) !important;
     }
 
-    /* Success/Info/Warning boxes */
     .stAlert {
         background: rgba(40, 167, 69, 0.1) !important;
         border: 1px solid rgba(40, 167, 69, 0.3) !important;
@@ -849,21 +944,119 @@ st.markdown("""
         backdrop-filter: blur(10px) !important;
     }
 
-    /* Map containers */
-    iframe {
-        border-radius: 16px !important;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    }
-
-    /* PyDeck charts */
-    .deckgl-wrapper {
+    iframe,
+    [data-testid="stCustomComponentV1"] iframe,
+    [data-testid="stIFrame"] iframe {
         border-radius: 16px !important;
         overflow: hidden !important;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+        border: 1px solid rgba(0, 0, 0, 0.08) !important;
+        display: block !important;
     }
 
-    /* Code blocks */
+    [data-testid="stDeckGlJsonChart"],
+    div[data-testid="stDeckGlJsonChart"],
+    div[data-testid="stElementContainer"]:has([data-testid="stDeckGlJsonChart"]),
+    div.element-container:has([data-testid="stDeckGlJsonChart"]) {
+        height: clamp(360px, 55vh, 650px) !important;
+        min-height: 360px !important;
+        max-height: 650px !important;
+        margin-bottom: 0px !important;
+        padding-bottom: 0px !important;
+    }
+
+    [data-testid="stDeckGlJsonChart"] {
+        border-radius: 16px !important;
+        overflow: hidden !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+        border: 1px solid rgba(0, 0, 0, 0.08) !important;
+        background: transparent !important;
+    }
+
+    [data-testid="stDeckGlJsonChart"] > div,
+    .deckgl-wrapper,
+    .deckgl-wrapper canvas {
+        box-shadow: none !important;
+        border: none !important;
+        border-radius: 16px !important;
+        overflow: hidden !important;
+        max-height: 100% !important;
+        height: 100% !important;
+    }
+
+    .element-container:has(.solar-legend-container),
+    [data-testid="element-container"]:has(.solar-legend-container),
+    [data-testid="stElementContainer"]:has(.solar-legend-container),
+    div:has(> .solar-legend-container),
+    div:has(> div > .solar-legend-container) {
+        margin-top: -30px !important;
+        padding-top: 0px !important;
+    }
+
+    .solar-legend-container {
+        width: 100% !important;
+        max-width: 480px !important;
+        margin: -8px 0 12px 0 !important;
+        box-sizing: border-box !important;
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+        position: relative !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    }
+
+    .solar-legend-title,
+    p.section-subtitle.solar-legend-title {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        text-align: left !important;
+        margin: 0 0 6px 0 !important;
+        padding: 0 !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: #4b5563 !important;
+        letter-spacing: -0.2px !important;
+    }
+
+    .solar-legend-items {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: flex-start !important;
+        justify-content: flex-start !important;
+        gap: 8px !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .solar-legend-item {
+        flex: 1 1 0px !important;
+        max-width: 48px !important;
+        text-align: center !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+    }
+
+    .solar-legend-color {
+        width: 100% !important;
+        aspect-ratio: 1 / 1 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15) !important;
+    }
+
+    .solar-legend-label {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        margin-top: 6px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        color: #4b5563 !important;
+        text-align: center !important;
+        line-height: 1 !important;
+        width: 100% !important;
+    }
+
+
     code {
         background: rgba(40, 167, 69, 0.2) !important;
         color: #28a745 !important;
@@ -872,9 +1065,6 @@ st.markdown("""
         font-family: 'Fira Code', monospace !important;
     }
 
-    /* Scrollbar is now hidden (see above) */
-
-    /* Fade-in animations for content */
     .element-container {
         animation: fadeIn 0.6s ease;
     }
@@ -884,12 +1074,10 @@ st.markdown("""
         to { opacity: 1; transform: translateY(0); }
     }
 
-    /* Title glow effect */
     .stTitle {
         text-shadow: 0 0 30px rgba(40, 167, 69, 0.5);
     }
 
-    /* IMMERSIVE: Large 3D button styling */
     button[key="generate_3d_button"] {
         background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%) !important;
         color: white !important;
@@ -907,7 +1095,6 @@ st.markdown("""
         box-shadow: 0 6px 30px rgba(66, 165, 245, 0.6) !important;
     }
 
-    /* Better button contrast */
     .stButton > button {
         background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
         color: white;
@@ -923,7 +1110,6 @@ st.markdown("""
         box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
     }
 
-    /* IMMERSIVE: Gradient for ALL headers */
     h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
         background: linear-gradient(135deg, #42a5f5 0%, #66bb6a 100%) !important;
         -webkit-background-clip: text !important;
@@ -931,7 +1117,6 @@ st.markdown("""
         background-clip: text !important;
         font-weight: 600 !important;
     }
-    
 </style>
 
 <script>
@@ -1476,39 +1661,33 @@ if st.session_state.show_search or st.session_state.map_center:
 
             with analysis_col1:
                 st.markdown("""
-                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 250px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
-                    <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza Nasłonecznienia</h3>
-                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
+                <div class="analysis-card" style="text-align: center; padding: 2.25rem 1.5rem; background: linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.08) 100%); border-radius: 20px; border: 2px solid rgba(255,193,7,0.25); min-height: 280px; display: flex; flex-direction: column; justify-content: space-between; flex: 1 1 auto; height: 100%; transition: all 0.3s ease; margin-bottom: 16px;">
+                    <h3 style="margin-top: 0; margin-bottom: 0.75rem; min-height: 2.8em; display: flex; align-items: center; justify-content: center; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza Nasłonecznienia</h3>
+                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto; min-height: 5rem; display: flex; align-items: center;">Oblicza średnią dzienną liczbę godzin słońca dla każdego punktu działki, uwzględniając cienie sąsiednich budynków</p>
                 </div>
                 """, unsafe_allow_html=True)
-
-                st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
                 if st.button("Wybierz", key="select_solar", use_container_width=True):
                     st.session_state.selected_analysis = "solar"
 
             with analysis_col2:
                 st.markdown("""
-                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 250px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
-                    <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza Dokumentów</h3>
-                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Analiza POG (Planu Ogólnego Gminy) oraz MPZP (Miejscowego Planu Zagospodarowania Przestrzennego)</p>
+                <div class="analysis-card" style="text-align: center; padding: 2.25rem 1.5rem; background: linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(25,118,210,0.08) 100%); border-radius: 20px; border: 2px solid rgba(33,150,243,0.25); min-height: 280px; display: flex; flex-direction: column; justify-content: space-between; flex: 1 1 auto; height: 100%; transition: all 0.3s ease; margin-bottom: 16px;">
+                    <h3 style="margin-top: 0; margin-bottom: 0.75rem; min-height: 2.8em; display: flex; align-items: center; justify-content: center; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Analiza Dokumentów</h3>
+                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto; min-height: 5rem; display: flex; align-items: center;">Analiza POG (Planu Ogólnego Gminy) oraz MPZP (Miejscowego Planu Zagospodarowania Przestrzennego)</p>
                 </div>
                 """, unsafe_allow_html=True)
-
-                st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
                 if st.button("Wybierz", key="select_pog", use_container_width=True):
                     st.session_state.selected_analysis = "pog"
 
             with analysis_col3:
                 st.markdown("""
-                <div class="analysis-card" style="text-align: center; padding: 3rem 1.5rem; background: linear-gradient(135deg, rgba(224,109,83,0.08) 0%, rgba(200,80,60,0.08) 100%); border-radius: 20px; border: 2px solid rgba(224,109,83,0.3); min-height: 250px; display: flex; flex-direction: column; justify-content: center; transition: all 0.3s ease;">
-                    <h3 style="margin-bottom: 1rem; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Koncepcja Kubaturowa</h3>
-                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto;">Generuje bryłę 3D dopasowaną do słońca, dokumentów planistycznych i twoich życzeń</p>
+                <div class="analysis-card" style="text-align: center; padding: 2.25rem 1.5rem; background: linear-gradient(135deg, rgba(224,109,83,0.08) 0%, rgba(200,80,60,0.08) 100%); border-radius: 20px; border: 2px solid rgba(224,109,83,0.3); min-height: 280px; display: flex; flex-direction: column; justify-content: space-between; flex: 1 1 auto; height: 100%; transition: all 0.3s ease; margin-bottom: 16px;">
+                    <h3 style="margin-top: 0; margin-bottom: 0.75rem; min-height: 2.8em; display: flex; align-items: center; justify-content: center; color: #424242; word-break: keep-all; hyphens: none; line-height: 1.3; text-align: center;">Koncepcja Kubaturowa</h3>
+                    <p style="color: #616161; margin-bottom: 0; line-height: 1.5; text-align: justify; text-justify: inter-word; hyphens: auto; min-height: 5rem; display: flex; align-items: center;">Generuje bryłę 3D dopasowaną do słońca, dokumentów planistycznych i twoich życzeń</p>
                 </div>
                 """, unsafe_allow_html=True)
-
-                st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
 
                 if st.button("Wybierz", key="select_massing", use_container_width=True):
                     st.session_state.selected_analysis = "massing"
@@ -1909,11 +2088,6 @@ if st.session_state.show_search or st.session_state.map_center:
                         else:
                             layers.insert(0, lidar_content)
 
-                    legend_html = visualization.create_discrete_legend_html(min_h, max_h, colormap='plasma')
-                    if legend_html:
-                        legend_html = legend_html.replace('\n', ' ')
-                        st.markdown(legend_html, unsafe_allow_html=True)
-
                     display_map_center = data.get('analysis_map_center', (53.4285, 14.5511))
 
                     r = pdk.Deck(layers=layers,
@@ -1922,6 +2096,11 @@ if st.session_state.show_search or st.session_state.map_center:
                                  map_style=None)
 
                     st.pydeck_chart(r, use_container_width=True, height=600)
+
+                    legend_html = visualization.create_discrete_legend_html(min_h, max_h, colormap='plasma')
+                    if legend_html:
+                        legend_html = legend_html.replace('\n', ' ')
+                        st.markdown(legend_html, unsafe_allow_html=True)
 
                     if "lidar_bbox" in data and data["lidar_bbox"] is not None and "grid_points_metric" in data and "sunlit_hours" in data:
                         if st.session_state.parcel_data and 'Adres' in st.session_state.parcel_data:
