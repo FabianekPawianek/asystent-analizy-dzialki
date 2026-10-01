@@ -24,14 +24,21 @@ def calculate_visualization_step(total_pixels: int, user_subsample: int = 1) -> 
     
     return final_step
 
-def value_to_rgb(value, min_val, max_val, colormap='plasma'):
-    if max_val == min_val:
+def value_to_rgb(value, min_val, max_val, colormap='plasma', alpha=255):
+    if max_val <= min_val:
         norm_value = 0.5
     else:
         norm_value = (value - min_val) / (max_val - min_val)
+    norm_value = float(np.clip(norm_value, 0.0, 1.0))
 
-    rgba = mpl.colormaps[colormap](norm_value)
-    return [int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255), 200]
+    try:
+        cmap = mpl.colormaps[colormap]
+    except (AttributeError, KeyError):
+        import matplotlib.pyplot as plt
+        cmap = plt.get_cmap(colormap)
+
+    rgba = cmap(norm_value)
+    return [int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255), int(alpha)]
 
 def map_sunlit_hours_to_rgba(sunlit_hours, min_val=None, max_val=None, colormap='plasma', alpha=255):
     sunlit_hours = np.asarray(sunlit_hours, dtype=np.float32)
@@ -43,7 +50,7 @@ def map_sunlit_hours_to_rgba(sunlit_hours, min_val=None, max_val=None, colormap=
     if max_val is None:
         max_val = float(np.nanmax(sunlit_hours))
 
-    if max_val == min_val:
+    if max_val <= min_val:
         norm_values = np.full_like(sunlit_hours, 0.5)
     else:
         norm_values = np.clip((sunlit_hours - min_val) / (max_val - min_val), 0.0, 1.0)
@@ -61,8 +68,8 @@ def map_sunlit_hours_to_rgba(sunlit_hours, min_val=None, max_val=None, colormap=
 
 def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
     if min_val >= max_val:
-        rgba = mpl.colormaps[colormap](0.5)
-        rgb = f"rgb({int(rgba[0] * 255)}, {int(rgba[1] * 255)}, {int(rgba[2] * 255)})"
+        color = value_to_rgb(min_val, min_val, max_val, colormap=colormap)
+        rgb = f"rgb({color[0]}, {color[1]}, {color[2]})"
         label = f"{min_val:.1f}h"
         header = "<div class='solar-legend-container'>"
         title = "<div class='solar-legend-title'>Czas nasłonecznienia [h]</div>"
@@ -70,13 +77,13 @@ def create_discrete_legend_html(min_val, max_val, colormap='plasma', steps=7):
         return f"{header}{title}{content}</div>"
 
     values = np.linspace(min_val, max_val, steps)
-    colors = mpl.colormaps[colormap](np.linspace(0, 0.90, steps))
     header = "<div class='solar-legend-container'>"
     title = "<div class='solar-legend-title'>Czas nasłonecznienia [h]</div>"
     content = "<div class='solar-legend-items'>"
 
     for i in range(steps):
-        rgb = f"rgb({int(colors[i][0] * 255)}, {int(colors[i][1] * 255)}, {int(colors[i][2] * 255)})"
+        color = value_to_rgb(values[i], min_val, max_val, colormap=colormap)
+        rgb = f"rgb({color[0]}, {color[1]}, {color[2]})"
         label = f"{values[i]:.1f}h"
         content += f"<div class='solar-legend-item'><div class='solar-legend-color' style='background: {rgb};'></div><div class='solar-legend-label'>{label}</div></div>"
 
@@ -502,7 +509,7 @@ def create_solar_analysis_layers(
             for _, row in solar_results.iterrows():
                 val = row['value']
                 raw_rgb = value_to_rgb(val, min_h, max_h)
-                color = [int(c) for c in raw_rgb[:3]] + [230]
+                color = [int(c) for c in raw_rgb[:3]] + [255]
                 
                 lon, lat = row['lon'], row['lat']
                 
