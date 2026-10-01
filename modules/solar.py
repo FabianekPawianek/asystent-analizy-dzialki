@@ -7,6 +7,7 @@ import os
 import gc
 import requests
 import rasterio.features
+import scipy.ndimage
 from pyproj import Transformer
 from shapely.geometry import Polygon, Point
 from shapely.prepared import prep
@@ -102,53 +103,318 @@ def fetch_building_polygons(bbox_epsg2180: tuple, radius_m: int = 1000) -> list:
 fetch_osm_building_polygons = fetch_building_polygons
 
 
-def create_building_mask(dsm_shape: tuple, transform, building_polygons_2180: list, dsm_data=None, dtm_data=None) -> np.ndarray:
+def compute_planar_roughness(z, mask):
+    m_float = mask.astype(np.float64)
+    zm = np.where(mask, z, 0.0)
 
+    k_box = np.ones((3, 3))
+    k_u = np.array([[-1, -1, -1], [0, 0, 0], [1, 1, 1]], dtype=np.float64)
+    k_v = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], dtype=np.float64)
+
+    n = scipy.ndimage.convolve(m_float, k_box, mode='constant', cval=0.0)
+    sum_u = scipy.ndimage.convolve(m_float, -k_u, mode='constant', cval=0.0)
+    sum_v = scipy.ndimage.convolve(m_float, -k_v, mode='constant', cval=0.0)
+    sum_u2 = scipy.ndimage.convolve(m_float, k_u**2, mode='constant', cval=0.0)
+    sum_v2 = scipy.ndimage.convolve(m_float, k_v**2, mode='constant', cval=0.0)
+    sum_uv = scipy.ndimage.convolve(m_float, k_u*k_v, mode='constant', cval=0.0)
+
+    sum_z = scipy.ndimage.convolve(zm, k_box, mode='constant', cval=0.0)
+    sum_uz = scipy.ndimage.convolve(zm, -k_u, mode='constant', cval=0.0)
+    sum_vz = scipy.ndimage.convolve(zm, -k_v, mode='constant', cval=0.0)
+    sum_z2 = scipy.ndimage.convolve(zm**2, k_box, mode='constant', cval=0.0)
+
+    valid = (n >= 4) & mask
+
+    c00 = sum_u2 * sum_v2 - sum_uv * sum_uv
+    c01 = -(sum_u * sum_v2 - sum_uv * sum_v)
+    c02 = sum_u * sum_uv - sum_u2 * sum_v
+    c11 = n * sum_v2 - sum_v * sum_v
+    c12 = -(n * sum_uv - sum_u * sum_v)
+    c22 = n * sum_u2 - sum_u * sum_u
+
+    det = n * c00 + sum_u * c01 + sum_v * c02
+    det_safe = np.where(valid & (np.abs(det) > 1e-4), det, 1.0)
+
+    inv00 = c00 / det_safe
+    inv01 = c01 / det_safe
+    inv02 = c02 / det_safe
+    inv11 = c11 / det_safe
+    inv12 = c12 / det_safe
+    inv22 = c22 / det_safe
+
+    z0 = inv00 * sum_z + inv01 * sum_uz + inv02 * sum_vz
+    p = inv01 * sum_z + inv11 * sum_uz + inv12 * sum_vz
+    q = inv02 * sum_z + inv12 * sum_uz + inv22 * sum_vz
+
+    rss = sum_z2 - (z0 * sum_z + p * sum_uz + q * sum_vz)
+    rss = np.maximum(0.0, rss)
+    n_safe = np.maximum(1.0, n)
+    rmse = np.sqrt(rss / n_safe)
+    return np.where(valid, rmse, 0.0)
+
+
+def repair_tree_overhangs(dsm_data, dtm_data, building_mask, pixel_size=1.0, building_labeled=None):
+    rows, cols = dsm_data.shape
+    dsm_repaired = dsm_data.copy()
+    tree_overhang_mask = np.zeros((rows, cols), dtype=bool)
+
+    if not np.any(building_mask):
+        return dsm_repaired, tree_overhang_mask
+
+    h_diff = np.where(np.isnan(dsm_data - dtm_data), 0.0, dsm_data - dtm_data)
+    external_veg = (~building_mask) & (h_diff >= 2.5)
+
+    if not np.any(external_veg):
+        return dsm_repaired, tree_overhang_mask
+
+    struct_8 = np.ones((3, 3), dtype=bool)
+    touching_trees_mask = external_veg & scipy.ndimage.binary_dilation(building_mask, structure=struct_8, iterations=2)
+    if not np.any(touching_trees_mask):
+        return dsm_repaired, tree_overhang_mask
+
+    roughness = compute_planar_roughness(dsm_data, building_mask)
+    is_planar_roof = building_mask & (roughness <= 0.22)
+    clean_roof_base = scipy.ndimage.binary_closing(is_planar_roof, structure=struct_8, iterations=1) & building_mask
+
+    dist_from_trees = scipy.ndimage.distance_transform_edt(~touching_trees_mask)
+    candidate_zone = building_mask & (dist_from_trees <= 6.0)
+    if not np.any(candidate_zone):
+        return dsm_repaired, tree_overhang_mask
+
+    if building_labeled is None:
+        labeled_bld, num_bld = scipy.ndimage.label(building_mask, structure=struct_8)
+    else:
+        labeled_bld = building_labeled
+        num_bld = int(np.max(labeled_bld))
+
+    for b_idx in range(1, num_bld + 1):
+        comp = (labeled_bld == b_idx)
+        comp_candidates = comp & candidate_zone
+        if not np.any(comp_candidates):
+            continue
+
+        comp_touching_trees = touching_trees_mask & scipy.ndimage.binary_dilation(comp, structure=struct_8, iterations=2)
+        if not np.any(comp_touching_trees):
+            continue
+
+        r_indices, c_indices = np.where(comp)
+        margin = 12
+        r_min, r_max = max(0, r_indices.min() - margin), min(rows, r_indices.max() + margin + 1)
+        c_min, c_max = max(0, c_indices.min() - margin), min(cols, c_indices.max() + margin + 1)
+
+        sub_comp = comp[r_min:r_max, c_min:c_max]
+        sub_dsm = dsm_data[r_min:r_max, c_min:c_max]
+        sub_dtm = dtm_data[r_min:r_max, c_min:c_max]
+        sub_roughness = roughness[r_min:r_max, c_min:c_max]
+        sub_clean_base = clean_roof_base[r_min:r_max, c_min:c_max]
+        sub_dist_trees = dist_from_trees[r_min:r_max, c_min:c_max]
+        sub_touching_trees = comp_touching_trees[r_min:r_max, c_min:c_max]
+        sub_ext_veg = external_veg[r_min:r_max, c_min:c_max]
+
+        tree_heights = sub_dsm[sub_touching_trees]
+        if len(tree_heights) == 0:
+            continue
+        tree_min_h = float(np.percentile(tree_heights, 10))
+        tree_max_h = float(np.percentile(tree_heights, 95))
+
+        suspect_canopy = sub_comp & (sub_dist_trees <= 6.0) & (sub_dsm >= tree_min_h - 1.5) & (sub_dsm <= tree_max_h + 1.0)
+
+        sub_clean_roof = sub_comp & sub_clean_base & (~suspect_canopy)
+
+        if np.sum(sub_clean_roof) < 4:
+            sub_clean_roof = sub_comp & sub_clean_base & (sub_dist_trees > 3.0)
+        if np.sum(sub_clean_roof) < 4:
+            sub_clean_roof = sub_comp & (sub_dsm < tree_min_h - 2.0)
+        if np.sum(sub_clean_roof) < 4:
+            sub_clean_roof = sub_comp & (sub_roughness <= 0.12)
+
+        if not np.any(sub_clean_roof):
+            if np.sum(sub_comp) <= 30 and np.all(sub_dsm[sub_comp] - sub_dtm[sub_comp] >= 5.0):
+                dsm_repaired[r_min:r_max, c_min:c_max][sub_comp] = sub_dtm[sub_comp] + 2.8
+                tree_overhang_mask[r_min:r_max, c_min:c_max][sub_comp] = True
+            continue
+
+        elevated_mask = sub_comp & (sub_dsm >= tree_min_h - 2.0) & (sub_dsm <= tree_max_h + 0.8)
+        propagation_domain = sub_ext_veg | elevated_mask
+        canopy_connected = scipy.ndimage.binary_propagation(sub_touching_trees, mask=propagation_domain) & sub_comp
+
+        sub_r_grid, sub_c_grid = np.indices((r_max - r_min, c_max - c_min))
+        sub_cand_r, sub_cand_c = np.where(sub_comp & canopy_connected & (sub_dist_trees <= 6.0))
+
+        for cr, cc in zip(sub_cand_r, sub_cand_c):
+            cz = sub_dsm[cr, cc]
+            if cz < tree_min_h - 2.0 or cz > tree_max_h + 0.8:
+                continue
+
+            dist_to_cand = np.sqrt((sub_r_grid - cr)**2 + (sub_c_grid - cc)**2)
+            local_roof_mask = sub_clean_roof & (dist_to_cand <= 7.0)
+
+            if np.sum(local_roof_mask) < 3:
+                local_roof_mask = sub_clean_roof & (dist_to_cand <= 12.0)
+            if np.sum(local_roof_mask) < 3:
+                local_roof_mask = sub_clean_roof
+
+            lr = sub_r_grid[local_roof_mask]
+            lc = sub_c_grid[local_roof_mask]
+            lz = sub_dsm[local_roof_mask]
+            dists = np.sqrt((lr - cr)**2 + (lc - cc)**2)
+
+            nearest_idx = np.argmin(dists)
+            ref_h = lz[nearest_idx]
+
+            max_allowed_diff = dists * 0.70 + 0.6
+            consistent = np.abs(lz - ref_h) <= max_allowed_diff
+
+            if np.sum(consistent) >= 3:
+                lr = lr[consistent]
+                lc = lc[consistent]
+                lz = lz[consistent]
+                dists = dists[consistent]
+            else:
+                fallback_consistent = np.abs(lz - ref_h) <= 2.0
+                if np.sum(fallback_consistent) >= 3:
+                    lr = lr[fallback_consistent]
+                    lc = lc[fallback_consistent]
+                    lz = lz[fallback_consistent]
+                    dists = dists[fallback_consistent]
+
+            weights = 1.0 / (1.0 + dists)
+
+            if len(lz) >= 3 and (np.max(lr) > np.min(lr) or np.max(lc) > np.min(lc)):
+                A_mat = np.column_stack([lr - cr, lc - cc, np.ones_like(lr)]) * weights[:, None]
+                coeff, _, _, _ = np.linalg.lstsq(A_mat, lz * weights, rcond=None)
+                slope = np.sqrt(coeff[0]**2 + coeff[1]**2)
+                if slope > 0.85:
+                    pred_z = float(ref_h)
+                else:
+                    pred_z = float(coeff[2])
+                    max_dev = float(np.min(dists)) * 0.70 + 0.6
+                    pred_z = np.clip(pred_z, ref_h - max_dev, ref_h + max_dev)
+            else:
+                pred_z = float(np.median(lz))
+
+            height_jump = cz - pred_z
+
+            if height_jump >= 2.0:
+                tree_overhang_mask[r_min + cr, c_min + cc] = True
+                pred_z = max(pred_z, float(sub_dtm[cr, cc] + 2.0))
+                pred_z = min(pred_z, cz)
+                dsm_repaired[r_min + cr, c_min + cc] = pred_z
+
+    return dsm_repaired, tree_overhang_mask
+
+
+detect_tree_overhangs = repair_tree_overhangs
+
+
+def create_building_mask(dsm_shape: tuple, transform, building_polygons_2180: list, dsm_data=None, dtm_data=None, filter_overhangs: bool = False) -> np.ndarray:
     rows, cols = dsm_shape
-    
+    pixel_size = abs(transform.a) if hasattr(transform, 'a') and transform.a != 0 else 1.0
+    buffer_dist = 1.0
+
     if not building_polygons_2180:
         if dsm_data is not None and dtm_data is not None:
-            print("DEBUG MASK: No building polygons fetched from APIs. Using elevation fallback (DSM - DTM > 2.8m).", flush=True)
             diff = dsm_data - dtm_data
-            mask = (diff > 2.8) & (~np.isnan(diff))
-            print(f"DEBUG MASK: Fallback building mask active on {np.sum(mask)} / {mask.size} pixels ({np.sum(mask)/mask.size*100:.1f}% area).", flush=True)
+            mask = (diff >= 1.80) & (~np.isnan(diff))
             return mask
         else:
-            mask = np.zeros((rows, cols), dtype=bool)
-            print(f"DEBUG MASK: Building mask active on 0 / {mask.size} pixels (0.0% area).", flush=True)
-            return mask
-        
+            return np.zeros((rows, cols), dtype=bool)
+
     try:
-        shapes = [(poly, True) for poly in building_polygons_2180 if poly and not poly.is_empty and poly.is_valid]
-        if not shapes:
+        valid_polys = []
+        buffered_polys = []
+        for poly in building_polygons_2180:
+            if poly and not poly.is_empty:
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+                if not poly.is_empty and poly.is_valid and poly.area > 2.0:
+                    valid_polys.append(poly)
+                    buffered_polys.append(poly.buffer(buffer_dist))
+
+        if not valid_polys:
             if dsm_data is not None and dtm_data is not None:
-                print("DEBUG MASK: No valid building shapes. Using elevation fallback (DSM - DTM > 2.8m).", flush=True)
                 diff = dsm_data - dtm_data
-                mask = (diff > 2.8) & (~np.isnan(diff))
-                print(f"DEBUG MASK: Fallback building mask active on {np.sum(mask)} / {mask.size} pixels ({np.sum(mask)/mask.size*100:.1f}% area).", flush=True)
-                return mask
-            mask = np.zeros((rows, cols), dtype=bool)
-            print(f"DEBUG MASK: Building mask active on 0 / {mask.size} pixels (0.0% area).", flush=True)
-            return mask
-            
-        mask_uint8 = rasterio.features.rasterize(
-            shapes=shapes,
+                return (diff >= 1.80) & (~np.isnan(diff))
+            return np.zeros((rows, cols), dtype=bool)
+
+        buffered_shapes = [(poly, 1) for poly in buffered_polys]
+        buffered_mask = rasterio.features.rasterize(
+            shapes=buffered_shapes,
             out_shape=(rows, cols),
             transform=transform,
             fill=0,
             default_value=1,
-            dtype='uint8'
-        )
-        mask = mask_uint8.astype(bool)
-        print(f"DEBUG BUILDINGS: Successfully created building mask with {len(building_polygons_2180)} polygons.", flush=True)
-        print(f"DEBUG MASK: Building mask active on {np.sum(mask)} / {mask.size} pixels ({np.sum(mask)/mask.size*100:.1f}% area).", flush=True)
-        return mask
+            dtype='uint8',
+            all_touched=False
+        ).astype(bool)
+
+        if dsm_data is not None and dtm_data is not None:
+            diff = dsm_data - dtm_data
+            valid_height = ~np.isnan(diff)
+            elevated = (diff >= 1.80) & valid_height
+            candidate_mask = buffered_mask & elevated
+
+            struct_8 = np.ones((3, 3), dtype=bool)
+            mask = scipy.ndimage.binary_closing(candidate_mask, structure=struct_8, iterations=1) & buffered_mask
+            mask = mask & ((diff >= 1.50) & valid_height)
+            return mask
+        else:
+            return buffered_mask
+
     except Exception as e:
         print(f"Error creating building mask: {e}", flush=True)
         if dsm_data is not None and dtm_data is not None:
             diff = dsm_data - dtm_data
-            return (diff > 2.8) & (~np.isnan(diff))
+            return (diff >= 1.80) & (~np.isnan(diff))
         return np.zeros((rows, cols), dtype=bool)
+
+
+def prepare_building_dsm(dsm_data, dtm_data, transform, building_polygons_2180, is_building_mask=None):
+    rows, cols = dsm_data.shape
+
+    if is_building_mask is None:
+        building_mask = create_building_mask(
+            (rows, cols), transform, building_polygons_2180,
+            dsm_data=dsm_data, dtm_data=dtm_data
+        )
+    else:
+        diff_orig = dsm_data - dtm_data
+        building_mask = is_building_mask & (diff_orig >= 1.50) & (~np.isnan(diff_orig))
+
+    building_labeled = None
+    if building_polygons_2180:
+        valid_polys = []
+        for poly in building_polygons_2180:
+            if poly and not poly.is_empty:
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+                if not poly.is_empty and poly.is_valid and poly.area > 2.0:
+                    valid_polys.append(poly)
+
+        if valid_polys:
+            core_shapes = [(poly, idx + 1) for idx, poly in enumerate(valid_polys)]
+            core_labeled = rasterio.features.rasterize(
+                shapes=core_shapes,
+                out_shape=(rows, cols),
+                transform=transform,
+                fill=0,
+                dtype='int32',
+                all_touched=False
+            )
+            if np.any(core_labeled):
+                dist_core, (nr, nc) = scipy.ndimage.distance_transform_edt(core_labeled == 0, return_indices=True)
+                building_labeled = np.where(building_mask, core_labeled[nr, nc], 0)
+
+    pixel_size = abs(transform.a) if hasattr(transform, 'a') and transform.a != 0 else 1.0
+
+    dsm_repaired, tree_overhang_mask = repair_tree_overhangs(
+        dsm_data, dtm_data, building_mask, pixel_size=pixel_size, building_labeled=building_labeled
+    )
+
+    dsm_cleaned = np.where(building_mask, dsm_repaired, dtm_data)
+    building_mask = building_mask & ((dsm_cleaned - dtm_data) >= 1.50)
+
+    return dsm_cleaned, building_mask
 
 def calculate_sun_positions(lat: float, lon: float, date: datetime.date, hour_range: tuple, freq: str = "1H", tz='Europe/Warsaw'):
     start_hour, end_hour = hour_range

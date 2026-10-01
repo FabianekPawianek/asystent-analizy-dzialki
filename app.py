@@ -372,6 +372,7 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
         dtm_data = dtm_data - min_elevation
         
         is_building_mask = None
+        building_polygons = []
         if lidar_bbox:
             building_polygons = get_parcel_buildings(lidar_bbox)
             is_building_mask = solar.create_building_mask(dsm_data.shape, _transform, building_polygons, dsm_data=dsm_data, dtm_data=dtm_data)
@@ -379,8 +380,8 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
         print(f"DEBUG SOLAR: Running simulation with ignore_trees={ignore_trees}.", flush=True)
 
         if ignore_trees and is_building_mask is not None:
-            dsm_for_calc = np.where(is_building_mask, dsm_data, dtm_data)
-            dsm_for_viz = np.where(is_building_mask, dsm_data, dtm_data)
+            dsm_for_calc, is_building_mask = solar.prepare_building_dsm(dsm_data, dtm_data, _transform, building_polygons, is_building_mask=is_building_mask)
+            dsm_for_viz = dsm_for_calc.copy()
         else:
             dsm_for_calc = dsm_data.copy()
             dsm_for_viz = dsm_data.copy()
@@ -397,7 +398,8 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
         pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
             dsm_for_viz, dtm_for_viz, _transform, subsample=1,
             is_building_mask=is_building_mask,
-            parcel_polygons_2180=parcel_geoms
+            parcel_polygons_2180=parcel_geoms,
+            layer_id="solar_lidar_pillars_layer"
         )
         if pillars_layer:
             lidar_layers.append(pillars_layer)
@@ -406,7 +408,8 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
             dsm_for_viz, _transform, subsample=1,
             parcel_polygons_2180=parcel_geoms,
             is_building_mask=is_building_mask,
-            dtm_data=dtm_for_viz
+            dtm_data=dtm_for_viz,
+            layer_id="solar_lidar_surface_layer"
         )
         if surface_layer:
             lidar_layers.append(surface_layer)
@@ -464,8 +467,7 @@ def get_solar_3d_obj_bytes(lidar_bbox, parcel_geoms_wkt, grid_points_metric, sun
 
         if ignore_trees:
             building_polygons = get_parcel_buildings(lidar_bbox)
-            is_building_mask = solar.create_building_mask(dsm_raw.shape, transform, building_polygons, dsm_data=dsm_raw, dtm_data=dtm_raw)
-            dsm_raw = np.where(is_building_mask, dsm_raw, dtm_raw)
+            dsm_raw, is_building_mask = solar.prepare_building_dsm(dsm_raw, dtm_raw, transform, building_polygons)
 
         return lidar_service.export_solar_trimesh_to_obj(
             dsm_data=dsm_raw,
@@ -558,7 +560,7 @@ def run_solar_simulation(
             if lidar_bbox:
                 building_polygons = get_parcel_buildings(lidar_bbox)
                 is_building_mask = solar.create_building_mask(dsm_data.shape, transform, building_polygons, dsm_data=dsm_data, dtm_data=dtm_data)
-                st.session_state['is_building_mask'] = is_building_mask
+                st.session_state['solar_building_mask'] = is_building_mask
 
             scene, grid_points_metric, lidar_layers = prepare_lidar_geometry(
                 dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric,
@@ -1498,7 +1500,8 @@ if st.session_state.show_search or st.session_state.map_center:
             'solar_analysis_results', 'solar_grid_points', 'lidar_point_cloud_layer',
             'generative_massing_layer', 'generative_massing_deck', 'mpzp_data',
             'pog_data', 'current_lidar_bbox', 'is_building_mask',
-            'cached_building_polygons', 'cached_parent_lidar'
+            'cached_building_polygons', 'cached_parent_lidar',
+            'solar_3d_deck', 'solar_3d_deck_key', 'osm_3d_deck', 'osm_3d_deck_key'
         ]
         for k in reset_keys:
             if k in st.session_state:
@@ -1561,7 +1564,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.session_state.selected_parcels.append(parcel_data)
                         st.success(f"Działka {parcel_data['ID Działki']} zaznaczona")
                     
-                    for key in ['lidar_3d_deck', 'lidar_3d_bbox', 'lidar_3d_parcels_key']:
+                    for key in ['lidar_3d_deck', 'lidar_3d_bbox', 'lidar_3d_parcels_key', 'osm_3d_deck', 'osm_3d_deck_key', 'solar_3d_deck', 'solar_3d_deck_key']:
                         st.session_state.pop(key, None)
                     
                     coords_2180 = parcel_data["Współrzędne EPSG:2180"]
@@ -1676,7 +1679,6 @@ if st.session_state.show_search or st.session_state.map_center:
                             dsm_viz = dsm_data - min_elevation
                             dtm_viz = dtm_data - min_elevation
 
-
                             _svc_tmp = LidarService()
                             dsm_viz = _svc_tmp.apply_circular_mask(dsm_viz)
                             dtm_viz = _svc_tmp.apply_circular_mask(dtm_viz)
@@ -1691,19 +1693,20 @@ if st.session_state.show_search or st.session_state.map_center:
                                     else:
                                         parcel_polygons_2180.append(poly.buffer(0))
 
-                            is_building_mask = st.session_state.get('is_building_mask')
+                            is_building_mask = st.session_state.get('env_building_mask')
                             if is_building_mask is None or is_building_mask.shape != dsm_viz.shape:
                                 building_polygons = get_parcel_buildings(current_lidar_bbox)
                                 if building_polygons:
                                     is_building_mask = solar.create_building_mask(dsm_viz.shape, transform_dsm, building_polygons, dsm_data=dsm_viz, dtm_data=dtm_viz)
-                                    st.session_state['is_building_mask'] = is_building_mask
+                                    st.session_state['env_building_mask'] = is_building_mask
 
                             lidar_layers = []
 
                             pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
                                 dsm_viz, dtm_viz, transform_dsm, subsample=1,
                                 is_building_mask=is_building_mask,
-                                parcel_polygons_2180=parcel_polygons_2180
+                                parcel_polygons_2180=parcel_polygons_2180,
+                                layer_id="env_lidar_pillars_layer"
                             )
                             if pillars_layer:
                                 lidar_layers.append(pillars_layer)
@@ -1712,7 +1715,8 @@ if st.session_state.show_search or st.session_state.map_center:
                                 dsm_viz, transform_dsm, subsample=1,
                                 parcel_polygons_2180=parcel_polygons_2180,
                                 is_building_mask=is_building_mask,
-                                dtm_data=dtm_viz
+                                dtm_data=dtm_viz,
+                                layer_id="env_lidar_surface_layer"
                             )
                             if surface_layer:
                                 lidar_layers.append(surface_layer)
@@ -1740,7 +1744,6 @@ if st.session_state.show_search or st.session_state.map_center:
                         except Exception as e:
                             print(f"DEBUG LIDAR GENERATION CRASH: {traceback.format_exc()}", flush=True)
                             st.error(f"Błąd generowania danych LiDAR: {e}")
-                            st.info("Przełączam na widok OSM...")
                             use_lidar_3d = False
                             st.session_state.pop('lidar_3d_deck', None)
 
@@ -1756,7 +1759,7 @@ if st.session_state.show_search or st.session_state.map_center:
                     </div>
                     """, unsafe_allow_html=True)
 
-                    st.pydeck_chart(st.session_state['lidar_3d_deck'], use_container_width=True, height=500)
+                    st.pydeck_chart(st.session_state['lidar_3d_deck'], use_container_width=True, height=500, key="lidar_3d_env_chart")
                     import re
                     current_date = datetime.now().strftime("%Y%m%d")
                     if address_input:
@@ -1792,41 +1795,50 @@ if st.session_state.show_search or st.session_state.map_center:
 
 
             if not use_lidar_3d:
-                with st.spinner("Generuję model 3D otoczenia..."):
-                    all_parcel_coords_list = []
-                    for parcel in st.session_state.selected_parcels:
-                        coords_wgs84_single = geospatial.transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
-                        if len(coords_wgs84_single) > 0:
-                            first_point = coords_wgs84_single[0]
-                            last_point = coords_wgs84_single[-1]
-                            if first_point != last_point:
-                                coords_closed = coords_wgs84_single + [first_point]
-                            else:
-                                coords_closed = coords_wgs84_single
-                            single_parcel_coords = [(p[1], p[0]) for p in coords_closed]
-                            all_parcel_coords_list.append(single_parcel_coords)
+                parcel_ids_key = tuple(sorted([p['ID Działki'] for p in st.session_state.selected_parcels]))
+                osm_radius = st.session_state.radius_3d_value
+                osm_cache_key = (parcel_ids_key, osm_radius, selected_map_style, map_center)
+                needs_osm_refresh = (st.session_state.get('osm_3d_deck_key') != osm_cache_key
+                                     or 'osm_3d_deck' not in st.session_state)
 
-                    osm_radius = st.session_state.radius_3d_value
-                    if all_parcel_coords_list:
-                        deck_3d_view = generate_3d_context_view_multiple_parcels(
-                            all_parcel_coords_list, map_center, map_style=selected_map_style, osm_radius=osm_radius
-                        )
-                    else:
-                        deck_3d_view = generate_3d_context_view(
-                            [], map_center, map_style=selected_map_style, osm_radius=osm_radius
-                        )
-                    if deck_3d_view:
-                        st.markdown("""
-                        <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
-                            <p style="margin: 0; color: #424242; font-size: 0.95rem;">
-                                <strong>Sterowanie kamerą:</strong>
-                                <strong>Obrót:</strong> PPM + przeciągnij |
-                                <strong>Przesuwanie:</strong> Przeciągnij |
-                                <strong>Zoom:</strong> Kółko myszy
-                            </p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        st.pydeck_chart(deck_3d_view, use_container_width=True, height=500)
+                if needs_osm_refresh:
+                    with st.spinner("Generuję model 3D otoczenia..."):
+                        all_parcel_coords_list = []
+                        for parcel in st.session_state.selected_parcels:
+                            coords_wgs84_single = geospatial.transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
+                            if len(coords_wgs84_single) > 0:
+                                first_point = coords_wgs84_single[0]
+                                last_point = coords_wgs84_single[-1]
+                                if first_point != last_point:
+                                    coords_closed = coords_wgs84_single + [first_point]
+                                else:
+                                    coords_closed = coords_wgs84_single
+                                single_parcel_coords = [(p[1], p[0]) for p in coords_closed]
+                                all_parcel_coords_list.append(single_parcel_coords)
+
+                        if all_parcel_coords_list:
+                            deck_3d_view = generate_3d_context_view_multiple_parcels(
+                                all_parcel_coords_list, map_center, map_style=selected_map_style, osm_radius=osm_radius
+                            )
+                        else:
+                            deck_3d_view = generate_3d_context_view(
+                                [], map_center, map_style=selected_map_style, osm_radius=osm_radius
+                            )
+                        st.session_state['osm_3d_deck'] = deck_3d_view
+                        st.session_state['osm_3d_deck_key'] = osm_cache_key
+
+                if 'osm_3d_deck' in st.session_state and st.session_state['osm_3d_deck']:
+                    st.markdown("""
+                    <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                        <p style="margin: 0; color: #424242; font-size: 0.95rem;">
+                            <strong>Sterowanie kamerą:</strong>
+                            <strong>Obrót:</strong> PPM + przeciągnij |
+                            <strong>Przesuwanie:</strong> Przeciągnij |
+                            <strong>Zoom:</strong> Kółko myszy
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.pydeck_chart(st.session_state['osm_3d_deck'], use_container_width=True, height=500, key="osm_3d_env_chart")
 
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
 
@@ -1945,6 +1957,8 @@ if st.session_state.show_search or st.session_state.map_center:
                     if not st.session_state.selected_parcels:
                         st.error("Nie wybrano działek do analizy.")
                     else:
+                        st.session_state.pop('solar_3d_deck', None)
+                        st.session_state.pop('solar_3d_deck_key', None)
                         st.session_state['is_processing'] = True
                         st.session_state['processing_params'] = {
                             'start_date': start_date,
@@ -2231,55 +2245,69 @@ if st.session_state.show_search or st.session_state.map_center:
                             parcel_coords.append(p_coords_wgs)
 
                     is_lidar = data.get('data_source') == "LiDAR (Laserowy skan otoczenia)"
-
                     diagram_scale = data.get('diagram_scale_factor', 1.0)
-
-                    layers, _ = visualization.create_solar_analysis_layers(
-                        parcel_coords_wgs_84=parcel_coords,
-                        map_center_wgs_84=data['analysis_map_center'],
-                        solar_results=results_df,
-                        grid_points_metric=None,
-                        sun_path_data=data['sun_paths'],
-                        analemma_data=data['analemmas'],
-                        azimuth_data=(data['azimuth_markers'], data['azimuth_lines']),
-                        show_buildings=not is_lidar,
-                        scale_factor=diagram_scale
-                    )
-                    st.session_state['solar_analysis_surface_layer'] = layers
-
-                    sun_positions_wgs84 = []
-                    transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
-                    for sp in data['sun_position_markers']:
-                        pos_wgs = list(transformer_to_wgs.transform(sp['position'][0], sp['position'][1]))
-                        sun_positions_wgs84.append({
-                            "position": [pos_wgs[0], pos_wgs[1], sp['position'][2]]
-                        })
-
-                    scale_factor = data.get('diagram_scale_factor', 1.0)
-                    sun_marker_radius = 12 * scale_factor
-                    sun_markers_layer = pdk.Layer("ScatterplotLayer", data=sun_positions_wgs84,
-                                                 get_position="position",
-                                                 get_radius=sun_marker_radius, filled=True,
-                                                 get_fill_color=[255, 223, 0, 255],
-                                                 stroked=False, billboard=True)
-                    layers.append(sun_markers_layer)
-
-                    if is_lidar and 'lidar_point_cloud_layer' in st.session_state and st.session_state['lidar_point_cloud_layer']:
-                        lidar_content = st.session_state['lidar_point_cloud_layer']
-                        if isinstance(lidar_content, list):
-                            for layer in reversed(lidar_content):
-                                layers.insert(0, layer)
-                        else:
-                            layers.insert(0, lidar_content)
-
                     display_map_center = data.get('analysis_map_center', (53.4285, 14.5511))
 
-                    r = pdk.Deck(layers=layers,
-                                 initial_view_state=pdk.ViewState(latitude=display_map_center[0], longitude=display_map_center[1],
-                                                                  zoom=17.5, pitch=50, bearing=0, max_pitch=90),
-                                 map_style=None)
+                    solar_deck_cache_key = (
+                        id(data),
+                        data.get('data_source'),
+                        diagram_scale,
+                        len(results_df),
+                        is_lidar
+                    )
 
-                    st.pydeck_chart(r, use_container_width=True, height=500)
+                    if 'solar_3d_deck' not in st.session_state or st.session_state.get('solar_3d_deck_key') != solar_deck_cache_key:
+                        layers, _ = visualization.create_solar_analysis_layers(
+                            parcel_coords_wgs_84=parcel_coords,
+                            map_center_wgs_84=data['analysis_map_center'],
+                            solar_results=results_df,
+                            grid_points_metric=None,
+                            sun_path_data=data['sun_paths'],
+                            analemma_data=data['analemmas'],
+                            azimuth_data=(data['azimuth_markers'], data['azimuth_lines']),
+                            show_buildings=not is_lidar,
+                            scale_factor=diagram_scale
+                        )
+                        st.session_state['solar_analysis_surface_layer'] = layers
+
+                        deck_layers = list(layers)
+
+                        if 'sun_position_markers' in data and data['sun_position_markers']:
+                            sun_positions_wgs84 = []
+                            transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+                            for sp in data['sun_position_markers']:
+                                pos_wgs = list(transformer_to_wgs.transform(sp['position'][0], sp['position'][1]))
+                                sun_positions_wgs84.append({
+                                    "position": [pos_wgs[0], pos_wgs[1], sp['position'][2]]
+                                })
+
+                            sun_marker_radius = 12 * diagram_scale
+                            sun_markers_layer = pdk.Layer("ScatterplotLayer", data=sun_positions_wgs84,
+                                                         get_position="position",
+                                                         get_radius=sun_marker_radius, filled=True,
+                                                         get_fill_color=[255, 223, 0, 255],
+                                                         stroked=False, billboard=True)
+                            deck_layers.append(sun_markers_layer)
+
+                        if is_lidar and 'lidar_point_cloud_layer' in st.session_state and st.session_state['lidar_point_cloud_layer']:
+                            lidar_content = st.session_state['lidar_point_cloud_layer']
+                            if isinstance(lidar_content, list):
+                                for layer in reversed(lidar_content):
+                                    deck_layers.insert(0, layer)
+                            else:
+                                deck_layers.insert(0, lidar_content)
+
+                        view_state = pdk.ViewState(latitude=display_map_center[0], longitude=display_map_center[1],
+                                                   zoom=17.5, pitch=50, bearing=0, max_pitch=90)
+
+                        r = pdk.Deck(layers=deck_layers,
+                                     initial_view_state=view_state,
+                                     map_style=None)
+
+                        st.session_state['solar_3d_deck'] = r
+                        st.session_state['solar_3d_deck_key'] = solar_deck_cache_key
+
+                    st.pydeck_chart(st.session_state['solar_3d_deck'], use_container_width=True, height=500, key="solar_3d_analysis_chart")
 
                     legend_html = visualization.create_discrete_legend_html(min_h, max_h, colormap='plasma')
                     if legend_html:
@@ -2537,7 +2565,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 )
 
                 st.session_state['generative_massing_deck'] = massing_deck
-                st.pydeck_chart(st.session_state['generative_massing_deck'], use_container_width=True, height=500)
+                st.pydeck_chart(st.session_state['generative_massing_deck'], use_container_width=True, height=500, key="generative_massing_chart")
 
 
 

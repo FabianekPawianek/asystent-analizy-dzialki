@@ -239,7 +239,7 @@ def create_lidar_lines_layer(dsm_data, dtm_data, transform, subsample=3):
     )
 
 
-def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3, custom_colors=None, is_building_mask=None, parcel_polygons_2180=None):
+def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=1, custom_colors=None, is_building_mask=None, parcel_polygons_2180=None, layer_id="lidar_square_pillars"):
     import math
     from matplotlib.path import Path
     
@@ -302,11 +302,11 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
         colors = []
         for i in range(n):
             if inside_parcel[i]:
-                colors.append([190, 240, 200])  # Bright mint green for target parcel
-            elif b_mask_sub is not None and b_mask_sub[i]:
-                colors.append([130, 180, 140])  # Darker sage green for buildings
+                colors.append([190, 240, 200])
+            elif b_mask_sub is not None and b_mask_sub[i] and heights[i] >= 1.50:
+                colors.append([130, 180, 140])
             else:
-                colors.append([160, 210, 170])  # Standard light green for surrounding terrain
+                colors.append([160, 210, 170])
 
     pillar_data = pd.DataFrame({
         'position': positions.tolist(),
@@ -316,6 +316,7 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
     
     layer = pdk.Layer(
         "ColumnLayer",
+        id=layer_id,
         data=pillar_data,
         get_position="position",
         get_elevation="height",
@@ -329,13 +330,12 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=3
         elevation_scale=1,
         pickable=False,
         material=False,
-        #parameters={"depthWriteEnabled": False},
     )
     
     return layer, mask
 
 
-def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_polygons_2180=None, custom_colors=None, is_building_mask=None, dtm_data=None):
+def create_lidar_square_surface_layer(dsm_data, transform, subsample=1, parcel_polygons_2180=None, custom_colors=None, is_building_mask=None, dtm_data=None, layer_id="lidar_square_surface"):
     from matplotlib.path import Path
     
     pixel_size = abs(transform.a)
@@ -356,6 +356,7 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
     xs_all, ys_all = rasterio.transform.xy(transform, r_grid.flatten(), c_grid.flatten())
     z_vals = dsm_sub.flatten()
     
+    dtm_valid = None
     if dtm_data is not None and dtm_data.shape == dsm_data.shape:
         dtm_sub = dtm_data[::final_step, ::final_step]
         dtm_flat = dtm_sub.flatten()
@@ -365,6 +366,8 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
     xs = np.array(xs_all)[valid_mask]
     ys = np.array(ys_all)[valid_mask]
     z_vals = z_vals[valid_mask]
+    if dtm_data is not None and dtm_data.shape == dsm_data.shape:
+        dtm_valid = dtm_flat[valid_mask]
     
     n_points = len(xs)
     
@@ -412,12 +415,16 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
         
         colors = []
         for i in range(n_points):
+            is_bldg = bool(b_mask_sub is not None and b_mask_sub[i])
+            if is_bldg and dtm_valid is not None and not np.isnan(dtm_valid[i]):
+                if (z_vals[i] - dtm_valid[i]) < 1.50:
+                    is_bldg = False
             if inside_parcel[i]:
-                colors.append([190, 240, 200])  # Bright mint green for target parcel
-            elif b_mask_sub is not None and b_mask_sub[i]:
-                colors.append([130, 180, 140])  # Darker sage green for buildings
+                colors.append([190, 240, 200])
+            elif is_bldg:
+                colors.append([130, 180, 140])
             else:
-                colors.append([160, 210, 170])  # Standard light green for surrounding terrain
+                colors.append([160, 210, 170])
     
     surface_data = pd.DataFrame({
         'polygon': [p.tolist() for p in polygons],
@@ -426,6 +433,7 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=2, parcel_p
     
     layer = pdk.Layer(
         "PolygonLayer",
+        id=layer_id,
         data=surface_data,
         get_polygon="polygon",
         get_fill_color="color",
@@ -485,6 +493,7 @@ def create_solar_analysis_layers(
 
     layer_parcel = pdk.Layer(
         "PolygonLayer",
+        id="solar_parcel_layer",
         data=parcels_data,
         get_polygon="polygon",
         extruded=False,
@@ -501,77 +510,107 @@ def create_solar_analysis_layers(
             min_h, max_h = solar_results['value'].min(), solar_results['value'].max()
             if min_h == max_h: max_h += 1.0
             
-            results_data = []
             has_z = 'z' in solar_results.columns
             
-            meters_per_deg_lat = 111132.954
-            
-            for _, row in solar_results.iterrows():
-                val = row['value']
-                raw_rgb = value_to_rgb(val, min_h, max_h)
-                color = [int(c) for c in raw_rgb[:3]] + [255]
+            if has_z:
+                meters_per_deg_lat = 111132.954
+                lat_offset = 0.5 / meters_per_deg_lat
                 
-                lon, lat = row['lon'], row['lat']
+                lons = solar_results['lon'].to_numpy()
+                lats = solar_results['lat'].to_numpy()
+                zs = solar_results['z'].to_numpy()
+                vals = solar_results['value'].to_numpy()
+                lon_offsets = 0.5 / (meters_per_deg_lat * np.cos(np.deg2rad(lats)))
                 
-                if has_z:
-                    z = row['z']
-                    lat_offset = 0.5 / meters_per_deg_lat
-                    lon_offset = 0.5 / (meters_per_deg_lat * np.cos(np.deg2rad(lat)))
-                    
-                    polygon = [
-                        [lon - lon_offset, lat - lat_offset, z],
-                        [lon + lon_offset, lat - lat_offset, z],
-                        [lon + lon_offset, lat + lat_offset, z],
-                        [lon - lon_offset, lat + lat_offset, z]
-                    ]
-                    
-                    results_data.append({
-                        'polygon': polygon,
-                        'color': color,
-                        'value': row['value']
-                    })
+                n_pts = len(lons)
+                polygons = np.zeros((n_pts, 4, 3))
+                polygons[:, 0, 0] = lons - lon_offsets
+                polygons[:, 0, 1] = lats - lat_offset
+                polygons[:, 0, 2] = zs
+                polygons[:, 1, 0] = lons + lon_offsets
+                polygons[:, 1, 1] = lats - lat_offset
+                polygons[:, 1, 2] = zs
+                polygons[:, 2, 0] = lons + lon_offsets
+                polygons[:, 2, 1] = lats + lat_offset
+                polygons[:, 2, 2] = zs
+                polygons[:, 3, 0] = lons - lon_offsets
+                polygons[:, 3, 1] = lats + lat_offset
+                polygons[:, 3, 2] = zs
+                
+                if max_h <= min_h:
+                    norm_vals = np.full(n_pts, 0.5)
                 else:
-                    results_data.append({
-                        'lon': lon,
-                        'lat': lat,
-                        'color': color,
-                        'value': row['value']
-                    })
-            
-            if has_z and results_data:
+                    norm_vals = np.clip((vals - min_h) / (max_h - min_h), 0.0, 1.0)
+                try:
+                    cmap = mpl.colormaps['plasma']
+                except (AttributeError, KeyError):
+                    import matplotlib.pyplot as plt
+                    cmap = plt.get_cmap('plasma')
+                rgba_array = (cmap(norm_vals) * 255).astype(int)
+                rgba_array[:, 3] = 255
+                colors_list = rgba_array.tolist()
+                polygons_list = [p.tolist() for p in polygons]
+                
+                heatmap_df = pd.DataFrame({
+                    'polygon': polygons_list,
+                    'color': colors_list,
+                    'value': vals
+                })
+                
                 heatmap_layer = pdk.Layer(
                     "PolygonLayer",
-                    data=results_data,
+                    id="solar_heatmap_layer",
+                    data=heatmap_df,
                     get_polygon="polygon",
                     get_fill_color="color",
                     filled=True,
                     extruded=False,
+                    flat_shading=True,
                     stroked=False,
                     opacity=1.0,
                     pickable=True,
-                    auto_highlight=True
+                    auto_highlight=True,
+                    material=False
                 )
+                layers.append(heatmap_layer)
             else:
+                results_data = []
+                for _, row in solar_results.iterrows():
+                    val = row['value']
+                    raw_rgb = value_to_rgb(val, min_h, max_h)
+                    color = [int(c) for c in raw_rgb[:3]] + [255]
+                    results_data.append({
+                        'lon': row['lon'],
+                        'lat': row['lat'],
+                        'color': color,
+                        'value': row['value']
+                    })
                 heatmap_layer = pdk.Layer(
                     "GridCellLayer",
+                    id="solar_heatmap_layer",
                     data=results_data,
                     get_position=['lon', 'lat'],
                     get_fill_color='color',
                     cell_size=1.0,
                     extruded=False,
-                    coverage=1.0
+                    coverage=1.0,
+                    pickable=True,
+                    auto_highlight=True
                 )
-            layers.append(heatmap_layer)
+                layers.append(heatmap_layer)
         else:
             results_data = solar_results
             heatmap_layer = pdk.Layer(
                 "GridCellLayer",
+                id="solar_heatmap_layer",
                 data=results_data,
                 get_position=['lon', 'lat'],
                 get_fill_color='color',
                 cell_size=1.0,
                 extruded=False,
-                coverage=1.0
+                coverage=1.0,
+                pickable=True,
+                auto_highlight=True
             )
             layers.append(heatmap_layer)
 
@@ -642,7 +681,6 @@ def create_solar_analysis_layers(
     if analemma_data:
         analemma_layers = []
         for hour, ana_content in analemma_data.items():
-
             segments = []
             if isinstance(ana_content, list) and len(ana_content) > 0:
                 first_item = ana_content[0]
