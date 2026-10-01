@@ -608,13 +608,11 @@ st.markdown("""
 
     html {
         scroll-behavior: smooth;
-        scroll-snap-type: y mandatory;
         scroll-padding: 0;
     }
 
     body {
-        scroll-snap-type: y mandatory;
-        overflow-y: scroll;
+        overflow-y: auto;
     }
 
     .stDeployButton {
@@ -644,7 +642,7 @@ st.markdown("""
         background: linear-gradient(135deg, #e3f2fd 0%, #e8f5e9 50%, #f1f8e9 100%);
         font-family: 'Inter', sans-serif;
     }
-
+    
     ::-webkit-scrollbar {
         width: 0px;
         background: transparent;
@@ -653,22 +651,20 @@ st.markdown("""
     * {
         scrollbar-width: none;
     }
-
+    
     .stApp > div > div {
         background: rgba(255, 255, 255, 0.7);
         backdrop-filter: blur(10px);
         border-radius: 16px;
         padding: clamp(1rem, 3vw, 3rem) !important;
         margin: 0;
-        min-height: 100vh;
+        min-height: auto;
         border: 1px solid rgba(40, 167, 69, 0.2);
         box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.08);
         transition: all 0.3s ease;
-        scroll-snap-align: start;
-        scroll-snap-stop: always;
         display: flex;
         flex-direction: column;
-        justify-content: center;
+        justify-content: flex-start;
     }
 
     .stApp > div > div:hover {
@@ -678,10 +674,10 @@ st.markdown("""
 
     .block-container {
         container-type: inline-size;
-        padding-top: clamp(1rem, 3vh, 3rem) !important;
-        padding-bottom: clamp(1rem, 3vh, 3rem) !important;
-        padding-left: clamp(10px, 3.5vw, 32px) !important;
-        padding-right: clamp(10px, 3.5vw, 32px) !important;
+        padding-top: clamp(1rem, 2.5vh, 2.5rem) !important;
+        padding-bottom: clamp(1rem, 2.5vh, 2.5rem) !important;
+        padding-left: clamp(18px, 4vw, 36px) !important;
+        padding-right: clamp(18px, 4vw, 36px) !important;
         max-width: 100% !important;
     }
 
@@ -784,17 +780,33 @@ st.markdown("""
         justify-content: center !important;
         align-items: center !important;
         gap: 0.75rem !important;
+        margin-top: 14px !important;
+        margin-bottom: 0px !important;
     }
 
-    [data-testid="column"]:has(.stButton) {
-        min-width: 260px !important;
-        flex: 1 1 260px !important;
+    [data-testid="stElementContainer"]:has([data-testid="stDownloadButton"]):not([data-testid="column"] *) {
+        display: flex !important;
+        justify-content: center !important;
+        margin-top: 14px !important;
+        margin-bottom: 0px !important;
     }
 
-    [data-testid="column"]:has(.stDownloadButton),
-    [data-testid="column"]:has([data-testid="stDownloadButton"]) {
-        min-width: max-content !important;
-        flex: 1 1 auto !important;
+    [data-testid="stElementContainer"]:has([data-testid="stDownloadButton"]):not([data-testid="column"] *) [data-testid="stDownloadButton"] {
+        max-width: 480px !important;
+        width: 100% !important;
+    }
+
+    @media (min-width: 769px) {
+        [data-testid="column"]:has(.stButton) {
+            min-width: 260px !important;
+            flex: 1 1 260px !important;
+        }
+
+        [data-testid="column"]:has(.stDownloadButton),
+        [data-testid="column"]:has([data-testid="stDownloadButton"]) {
+            min-width: max-content !important;
+            flex: 1 1 auto !important;
+        }
     }
 
     .stButton button, .stDownloadButton button, [data-testid="stDownloadButton"] button {
@@ -838,81 +850,83 @@ st.markdown("""
         align-items: stretch !important;
     }
 
-    [data-testid="column"]:has(.analysis-card) {
-        display: flex !important;
-        flex-direction: column !important;
-        height: auto !important;
-    }
+    @media (min-width: 769px) {
+        [data-testid="column"]:has(.analysis-card) {
+            display: flex !important;
+            flex-direction: column !important;
+            height: auto !important;
+        }
 
-    [data-testid="column"]:has(.analysis-card) > div,
-    [data-testid="column"]:has(.analysis-card) [data-testid="stVerticalBlockBorderWrapper"],
-    [data-testid="column"]:has(.analysis-card) [data-testid="stVerticalBlock"] {
-        display: flex !important;
-        flex-direction: column !important;
-        flex: 1 1 auto !important;
-        height: 100% !important;
-        justify-content: space-between !important;
-        gap: 0px !important;
-    }
+        [data-testid="column"]:has(.analysis-card) > div,
+        [data-testid="column"]:has(.analysis-card) [data-testid="stVerticalBlockBorderWrapper"],
+        [data-testid="column"]:has(.analysis-card) [data-testid="stVerticalBlock"] {
+            display: flex !important;
+            flex-direction: column !important;
+            flex: 1 1 auto !important;
+            height: 100% !important;
+            justify-content: space-between !important;
+            gap: 0px !important;
+        }
 
-    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:first-child,
-    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:first-child > div,
-    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:first-child .stMarkdown,
-    [data-testid="column"]:has(.analysis-card) .element-container:first-child,
-    [data-testid="column"]:has(.analysis-card) .element-container:first-child > div,
-    [data-testid="column"]:has(.analysis-card) .element-container:first-child .stMarkdown {
-        display: flex !important;
-        flex-direction: column !important;
-        flex: 1 1 auto !important;
-        height: 100% !important;
-    }
+        [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:first-child,
+        [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:first-child > div,
+        [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:first-child .stMarkdown,
+        [data-testid="column"]:has(.analysis-card) .element-container:first-child,
+        [data-testid="column"]:has(.analysis-card) .element-container:first-child > div,
+        [data-testid="column"]:has(.analysis-card) .element-container:first-child .stMarkdown {
+            display: flex !important;
+            flex-direction: column !important;
+            flex: 1 1 auto !important;
+            height: 100% !important;
+        }
 
-    .analysis-card {
-        flex: 1 1 auto !important;
-        height: 100% !important;
-        min-height: 280px !important;
-        display: flex !important;
-        flex-direction: column !important;
-        justify-content: space-between !important;
-        box-sizing: border-box !important;
-        margin-bottom: 16px !important;
-        padding: 2.25rem 1.5rem !important;
-    }
+        .analysis-card {
+            flex: 1 1 auto !important;
+            height: 100% !important;
+            min-height: 280px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            box-sizing: border-box !important;
+            margin-bottom: 16px !important;
+            padding: 2.25rem 1.5rem !important;
+        }
 
-    .analysis-card h3 {
-        color: #424242 !important;
-        font-size: clamp(1.0rem, 3.2cqw, 1.4rem) !important;
-        line-height: 1.3 !important;
-        word-break: keep-all !important;
-        hyphens: none !important;
-        text-align: center !important;
-        margin-top: 0 !important;
-        margin-bottom: 0.75rem !important;
-        min-height: 2.8em !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
+        .analysis-card h3 {
+            color: #424242 !important;
+            font-size: clamp(1.0rem, 3.2cqw, 1.4rem) !important;
+            line-height: 1.3 !important;
+            word-break: keep-all !important;
+            hyphens: none !important;
+            text-align: center !important;
+            margin-top: 0 !important;
+            margin-bottom: 0.75rem !important;
+            min-height: 2.8em !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
 
-    .analysis-card p {
-        font-size: clamp(0.85rem, 2.2cqw, 1.05rem) !important;
-        text-align: justify !important;
-        text-justify: inter-word !important;
-        line-height: 1.5 !important;
-        margin-bottom: 0 !important;
-        flex: 1 1 auto !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        min-height: 5rem !important;
-    }
+        .analysis-card p {
+            font-size: clamp(0.85rem, 2.2cqw, 1.05rem) !important;
+            text-align: justify !important;
+            text-justify: inter-word !important;
+            line-height: 1.5 !important;
+            margin-bottom: 0 !important;
+            flex: 1 1 auto !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-height: 5rem !important;
+        }
 
-    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:has(.stButton),
-    [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:last-child,
-    [data-testid="column"]:has(.analysis-card) .element-container:last-child,
-    [data-testid="column"]:has(.analysis-card) .stButton {
-        margin-top: auto !important;
-        padding-top: 0 !important;
+        [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:has(.stButton),
+        [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:last-child,
+        [data-testid="column"]:has(.analysis-card) .element-container:last-child,
+        [data-testid="column"]:has(.analysis-card) .stButton {
+            margin-top: auto !important;
+            padding-top: 0 !important;
+        }
     }
 
     div[data-baseweb="slider"] div[role="slider"] {
@@ -952,17 +966,41 @@ st.markdown("""
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
         border: 1px solid rgba(0, 0, 0, 0.08) !important;
         display: block !important;
+        width: 100% !important;
     }
 
-    [data-testid="stDeckGlJsonChart"],
-    div[data-testid="stDeckGlJsonChart"],
-    div[data-testid="stElementContainer"]:has([data-testid="stDeckGlJsonChart"]),
-    div.element-container:has([data-testid="stDeckGlJsonChart"]) {
-        height: clamp(360px, 55vh, 650px) !important;
-        min-height: 360px !important;
-        max-height: 650px !important;
-        margin-bottom: 0px !important;
-        padding-bottom: 0px !important;
+    @media (min-width: 769px) {
+        [data-testid="stCustomComponentV1"],
+        [data-testid="stCustomComponentV1"] iframe,
+        [data-testid="stIFrame"] iframe {
+            height: 500px !important;
+            min-height: 500px !important;
+        }
+
+        [data-testid="stElementContainer"]:has([data-testid="stCustomComponentV1"]),
+        div.element-container:has([data-testid="stCustomComponentV1"]) {
+            height: 500px !important;
+            min-height: 500px !important;
+            flex: 0 0 500px !important;
+        }
+
+        [data-testid="stDeckGlJsonChart"] {
+            height: 500px !important;
+            min-height: 500px !important;
+        }
+
+        [data-testid="stDeckGlJsonChart"] > div {
+            height: 500px !important;
+        }
+
+        [data-testid="stElementContainer"]:has([data-testid="stDeckGlJsonChart"]),
+        div.element-container:has([data-testid="stDeckGlJsonChart"]) {
+            height: 500px !important;
+            min-height: 500px !important;
+            flex: 0 0 500px !important;
+            margin-bottom: 0px !important;
+            padding-bottom: 0px !important;
+        }
     }
 
     [data-testid="stDeckGlJsonChart"] {
@@ -971,37 +1009,51 @@ st.markdown("""
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
         border: 1px solid rgba(0, 0, 0, 0.08) !important;
         background: transparent !important;
+        margin-bottom: 0px !important;
+        padding-bottom: 0px !important;
+        width: 100% !important;
     }
 
-    [data-testid="stDeckGlJsonChart"] > div,
-    .deckgl-wrapper,
-    .deckgl-wrapper canvas {
-        box-shadow: none !important;
-        border: none !important;
-        border-radius: 16px !important;
-        overflow: hidden !important;
-        max-height: 100% !important;
-        height: 100% !important;
-    }
-
-    .element-container:has(.solar-legend-container),
-    [data-testid="element-container"]:has(.solar-legend-container),
     [data-testid="stElementContainer"]:has(.solar-legend-container),
-    div:has(> .solar-legend-container),
-    div:has(> div > .solar-legend-container) {
-        margin-top: -30px !important;
-        padding-top: 0px !important;
+    div.element-container:has(.solar-legend-container) {
+        height: 0px !important;
+        min-height: 0px !important;
+        max-height: 0px !important;
+        margin: 0px !important;
+        padding: 0px !important;
+        position: relative !important;
+        z-index: 50 !important;
+        pointer-events: none !important;
+        flex: none !important;
+    }
+
+    [data-testid="stElementContainer"]:has(.solar-legend-container) .stMarkdown,
+    [data-testid="stElementContainer"]:has(.solar-legend-container) [data-testid="stMarkdownContainer"] {
+        height: 0px !important;
+        min-height: 0px !important;
+        max-height: 0px !important;
+        margin: 0px !important;
+        padding: 0px !important;
+        position: relative !important;
     }
 
     .solar-legend-container {
-        width: 100% !important;
-        max-width: 480px !important;
-        margin: -8px 0 12px 0 !important;
+        position: absolute !important;
+        bottom: 16px !important;
+        left: 0px !important;
+        z-index: 50 !important;
+        pointer-events: auto !important;
+        background: rgba(255, 255, 255, 0) !important;
+        #backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(0, 0, 0, 0) !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0) !important;
+        padding: 8px 12px !important;
+        margin: 0 !important;
         box-sizing: border-box !important;
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-        position: relative !important;
+        width: auto !important;
+        max-width: calc(100% - 32px) !important;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     }
 
@@ -1011,49 +1063,46 @@ st.markdown("""
         text-align: left !important;
         margin: 0 0 6px 0 !important;
         padding: 0 !important;
-        font-size: 13px !important;
+        font-size: 12px !important;
         font-weight: 600 !important;
-        color: #4b5563 !important;
+        color: #424242 !important;
         letter-spacing: -0.2px !important;
     }
 
     .solar-legend-items {
         display: flex !important;
         flex-direction: row !important;
-        align-items: flex-start !important;
+        align-items: center !important;
         justify-content: flex-start !important;
-        gap: 8px !important;
-        width: 100% !important;
+        gap: 6px !important;
+        width: auto !important;
         box-sizing: border-box !important;
     }
 
     .solar-legend-item {
-        flex: 1 1 0px !important;
-        max-width: 48px !important;
-        text-align: center !important;
         display: flex !important;
         flex-direction: column !important;
         align-items: center !important;
+        min-width: 0 !important;
     }
 
     .solar-legend-color {
-        width: 100% !important;
-        aspect-ratio: 1 / 1 !important;
-        border-radius: 6px !important;
+        width: 36px !important;
+        height: 14px !important;
+        border-radius: 4px !important;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15) !important;
     }
 
     .solar-legend-label {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-        font-size: 12px !important;
-        font-weight: 500 !important;
-        margin-top: 6px !important;
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        margin-top: 4px !important;
         white-space: nowrap !important;
         overflow: hidden !important;
-        color: #4b5563 !important;
+        color: #424242 !important;
         text-align: center !important;
         line-height: 1 !important;
-        width: 100% !important;
     }
 
 
@@ -1117,57 +1166,205 @@ st.markdown("""
         background-clip: text !important;
         font-weight: 600 !important;
     }
+    @media (max-width: 768px) {
+        .block-container {
+            padding-left: 20px !important;
+            padding-right: 20px !important;
+            padding-top: 1rem !important;
+            padding-bottom: 2rem !important;
+        }
+
+        .stApp > div > div {
+            padding: 1.25rem 0.5rem !important;
+            min-height: auto !important;
+            border-radius: 12px !important;
+            box-shadow: none !important;
+        }
+
+        .stApp h1, .main-title {
+            font-size: clamp(1.15rem, 5.5vw, 1.6rem) !important;
+            white-space: normal !important;
+            line-height: 1.25 !important;
+            word-break: normal !important;
+        }
+
+        .stApp h2, .main h2, .stMarkdown h2 {
+            font-size: clamp(1.05rem, 4.5vw, 1.35rem) !important;
+            line-height: 1.3 !important;
+            margin-top: 1rem !important;
+            margin-bottom: 0.35rem !important;
+        }
+
+        .stApp h3, .main h3, .stMarkdown h3 {
+            font-size: clamp(0.95rem, 3.8vw, 1.15rem) !important;
+            line-height: 1.3 !important;
+        }
+
+        .main-subtitle, .stMarkdown p.subtitle, .section-subtitle {
+            font-size: clamp(0.8rem, 3.2vw, 0.95rem) !important;
+            line-height: 1.4 !important;
+        }
+
+        [data-testid="column"]:has(.analysis-card) {
+            width: 100% !important;
+            min-width: 100% !important;
+            flex: 1 1 100% !important;
+            margin-bottom: 1.25rem !important;
+            height: auto !important;
+        }
+
+        [data-testid="column"]:has(.analysis-card) [data-testid="stVerticalBlock"] {
+            height: auto !important;
+            gap: 0px !important;
+        }
+
+        .analysis-card {
+            min-height: 0 !important;
+            height: auto !important;
+            padding: 1.25rem 1.25rem !important;
+            margin-bottom: 12px !important;
+            border-radius: 16px !important;
+        }
+
+        .analysis-card h3 {
+            min-height: 0 !important;
+            height: auto !important;
+            font-size: 1.15rem !important;
+            line-height: 1.3 !important;
+            margin-bottom: 0.5rem !important;
+            text-align: center !important;
+        }
+
+        .analysis-card p {
+            min-height: 0 !important;
+            height: auto !important;
+            font-size: 0.9rem !important;
+            line-height: 1.45 !important;
+            text-align: center !important;
+            margin-bottom: 0 !important;
+        }
+
+        [data-testid="column"]:has(.analysis-card) [data-testid="stElementContainer"]:has(.stButton),
+        [data-testid="column"]:has(.analysis-card) .stButton {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+            width: 100% !important;
+        }
+
+        [data-testid="column"]:has(.stButton),
+        [data-testid="column"]:has(.stDownloadButton),
+        [data-testid="column"]:has([data-testid="stDownloadButton"]) {
+            min-width: 100% !important;
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            margin-bottom: 0px !important;
+            padding-bottom: 0px !important;
+        }
+
+        [data-testid="stHorizontalBlock"]:has(.stDownloadButton),
+        [data-testid="stHorizontalBlock"]:has([data-testid="stDownloadButton"]) {
+            margin-top: 12px !important;
+            margin-bottom: 0px !important;
+            gap: 8px !important;
+        }
+
+        [data-testid="stElementContainer"]:has([data-testid="stDownloadButton"]):not([data-testid="column"] *) {
+            margin-top: 12px !important;
+            margin-bottom: 0px !important;
+        }
+
+        [data-testid="stElementContainer"]:has([data-testid="stDownloadButton"]):not([data-testid="column"] *) [data-testid="stDownloadButton"] {
+            max-width: 100% !important;
+            width: 100% !important;
+        }
+
+        [data-testid="stCustomComponentV1"],
+        [data-testid="stCustomComponentV1"] iframe,
+        [data-testid="stIFrame"] iframe {
+            width: 100% !important;
+            aspect-ratio: 1 / 1 !important;
+            height: auto !important;
+            min-height: 320px !important;
+            max-height: 440px !important;
+            border-radius: 16px !important;
+            overflow: hidden !important;
+            display: block !important;
+        }
+
+        [data-testid="stElementContainer"]:has([data-testid="stCustomComponentV1"]),
+        div.element-container:has([data-testid="stCustomComponentV1"]) {
+            height: auto !important;
+            min-height: 320px !important;
+            max-height: 440px !important;
+            flex: none !important;
+        }
+
+        [data-testid="stDeckGlJsonChart"] {
+            width: 100% !important;
+            height: 380px !important;
+            min-height: 380px !important;
+            max-height: 380px !important;
+            margin-bottom: 0px !important;
+            padding-bottom: 0px !important;
+        }
+
+        [data-testid="stDeckGlJsonChart"] > div {
+            height: 380px !important;
+            max-height: 380px !important;
+        }
+
+        [data-testid="stElementContainer"]:has([data-testid="stDeckGlJsonChart"]),
+        div.element-container:has([data-testid="stDeckGlJsonChart"]) {
+            height: 380px !important;
+            min-height: 380px !important;
+            max-height: 380px !important;
+            flex: 0 0 380px !important;
+            margin-bottom: 0px !important;
+            padding-bottom: 0px !important;
+        }
+
+        .solar-legend-container {
+            position: absolute !important;
+            bottom: 12px !important;
+            left: 0px !important;
+            padding: 6px 8px !important;
+            border-radius: 10px !important;
+            max-width: calc(100% - 24px) !important;
+            background: rgba(255, 255, 255, 0) !important;
+            #backdrop-filter: blur(8px) !important;
+            #-webkit-backdrop-filter: blur(8px) !important;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0) !important;
+            border: 1px solid rgba(0, 0, 0, 0) !important;
+        }
+
+        .solar-legend-title,
+        p.section-subtitle.solar-legend-title {
+            font-size: 10.5px !important;
+            margin: 0 0 3px 0 !important;
+            font-weight: 600 !important;
+            color: #424242 !important;
+        }
+
+        .solar-legend-items {
+            gap: 3px !important;
+        }
+
+        .solar-legend-color {
+            width: 26px !important;
+            height: 10px !important;
+            border-radius: 2px !important;
+        }
+
+        .solar-legend-label {
+            font-size: 9.5px !important;
+            margin-top: 2px !important;
+            font-weight: 600 !important;
+            color: #424242 !important;
+        }
+    }
 </style>
 
 <script>
-// IMMERSIVE: Auto-scroll to bottom after Streamlit reruns
-const autoScrollToBottom = () => {
-    setTimeout(() => {
-        window.scrollTo({
-            top: document.body.scrollHeight,
-            behavior: 'smooth'
-        });
-    }, 300);
-};
-
-// Listen for Streamlit script finished event
-window.addEventListener('load', () => {
-    const observer = new MutationObserver(() => {
-        // Check if new content was added (indicates rerun completed)
-        autoScrollToBottom();
-    });
-
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
-});
-</script>
-
-<script>
-// IMMERSIVE: Auto-scroll to bottom after Streamlit reruns
-const autoScrollToBottom = () => {
-    setTimeout(() => {
-        window.scrollTo({
-            top: document.body.scrollHeight,
-            behavior: 'smooth'
-        });
-    }, 300);
-};
-
-// Listen for Streamlit script finished event
-window.addEventListener('load', () => {
-    const observer = new MutationObserver(() => {
-        // Check if new content was added (indicates rerun completed)
-        autoScrollToBottom();
-    });
-
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
-});
-
 // CUSTOM IMMERSIVE CURSOR - Enhanced for Streamlit compatibility
 function initCustomCursor() {
     // Remove any existing cursor if present
@@ -1336,22 +1533,13 @@ if st.session_state.show_search or st.session_state.map_center:
                             name="Działki Ewidencyjne").add_to(m)
         folium.LayerControl().add_to(m)
 
-        m = folium.Map(location=st.session_state.map_center, zoom_start=18)
-        folium.TileLayer(
-            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            attr='Esri', name='Satelita', overlay=True).add_to(m)
-        folium.WmsTileLayer(url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
-                            layers="dzialki,numery_dzialek", transparent=True, fmt="image/png",
-                            name="Działki Ewidencyjne").add_to(m)
-        folium.LayerControl().add_to(m)
-
         for parcel in st.session_state.selected_parcels:
             coords_wgs84 = geospatial.transform_coordinates_to_wgs84(parcel["Współrzędne EPSG:2180"])
             folium.Polygon(locations=coords_wgs84, color='#28a745', fill=True, fillColor='#28a745',
                            fill_opacity=0.5, weight=3, tooltip=parcel['ID Działki']).add_to(m)
 
         map_key = f"parcel_map_{len(st.session_state.selected_parcels)}"
-        map_data = st_folium(m, use_container_width=True, height=700, key=map_key)
+        map_data = st_folium(m, use_container_width=True, height=500, key=map_key)
 
         if map_data and map_data.get("last_clicked"):
             lat, lon = map_data["last_clicked"]["lat"], map_data["last_clicked"]["lng"]
@@ -1568,7 +1756,7 @@ if st.session_state.show_search or st.session_state.map_center:
                     </div>
                     """, unsafe_allow_html=True)
 
-                    st.pydeck_chart(st.session_state['lidar_3d_deck'], use_container_width=True, height=750)
+                    st.pydeck_chart(st.session_state['lidar_3d_deck'], use_container_width=True, height=500)
                     import re
                     current_date = datetime.now().strftime("%Y%m%d")
                     if address_input:
@@ -1582,26 +1770,22 @@ if st.session_state.show_search or st.session_state.map_center:
                     xyz_filename = f"Punkty_XYZ_{clean_addr}_{current_date}.xyz"
 
                     try:
-                        col_1, col_2 = st.columns(2, gap="large")
+                        col_1, col_2 = st.columns(2, gap="medium")
 
                         with col_1:
-                            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                            with col_btn2:
-                                st.download_button(
-                                    label="Pobierz model 3D `.obj`",
-                                    data=get_lidar_raw_obj_bytes(current_lidar_bbox),
-                                    file_name=obj_filename,
-                                    use_container_width=True
-                                )
+                            st.download_button(
+                                label="Pobierz model 3D `.obj`",
+                                data=get_lidar_raw_obj_bytes(current_lidar_bbox),
+                                file_name=obj_filename,
+                                use_container_width=True
+                            )
                         with col_2:
-                            col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                            with col_btn2:
-                                st.download_button(
-                                    label="Pobierz chmurę punktów `.xyz`",
-                                    data=get_lidar_raw_xyz_bytes(current_lidar_bbox),
-                                    file_name=xyz_filename,
-                                    use_container_width=True
-                                )
+                            st.download_button(
+                                label="Pobierz chmurę punktów `.xyz`",
+                                data=get_lidar_raw_xyz_bytes(current_lidar_bbox),
+                                file_name=xyz_filename,
+                                use_container_width=True
+                            )
                     except Exception as export_err:
                         print(f"DEBUG LIDAR EXPORT ERROR: {traceback.format_exc()}", flush=True)
                         st.warning(f"Nie udało się przygotować plików do pobrania: {export_err}")
@@ -1642,13 +1826,13 @@ if st.session_state.show_search or st.session_state.map_center:
                             </p>
                         </div>
                         """, unsafe_allow_html=True)
-                        st.pydeck_chart(deck_3d_view, use_container_width=True, height=750)
+                        st.pydeck_chart(deck_3d_view, use_container_width=True, height=500)
 
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
 
         if st.session_state.selected_parcels:
             st.markdown("""
-            <div style="text-align: center; margin: 10rem 0 3rem 0;">
+            <div style="text-align: center; margin: 2.5rem 0 1.5rem 0;">
                 <h2 style="margin-bottom: 0.5rem;">Dostępne narzędzia</h2>
                 <p class="section-subtitle">Kliknij jedną z opcji aby rozpocząć</p>
             </div>
@@ -2095,7 +2279,7 @@ if st.session_state.show_search or st.session_state.map_center:
                                                                   zoom=17.5, pitch=50, bearing=0, max_pitch=90),
                                  map_style=None)
 
-                    st.pydeck_chart(r, use_container_width=True, height=600)
+                    st.pydeck_chart(r, use_container_width=True, height=500)
 
                     legend_html = visualization.create_discrete_legend_html(min_h, max_h, colormap='plasma')
                     if legend_html:
@@ -2119,25 +2303,22 @@ if st.session_state.show_search or st.session_state.map_center:
                         current_date = datetime.now().strftime("%Y%m%d")
                         solar_obj_filename = f"Model_3D_Naslonecznienie_{clean_addr}_{current_date}.obj"
 
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-                        with col_btn2:
-                            solar_obj_data = get_solar_3d_obj_bytes(
-                                data["lidar_bbox"],
-                                data.get("parcel_geoms_wkt", []),
-                                data["grid_points_metric"],
-                                data["sunlit_hours"],
-                                data.get("max_hours"),
-                                ignore_trees=data.get("ignore_trees", False)
+                        solar_obj_data = get_solar_3d_obj_bytes(
+                            data["lidar_bbox"],
+                            data.get("parcel_geoms_wkt", []),
+                            data["grid_points_metric"],
+                            data["sunlit_hours"],
+                            data.get("max_hours"),
+                            ignore_trees=data.get("ignore_trees", False)
+                        )
+                        if solar_obj_data:
+                            st.download_button(
+                                label="Pobierz model 3D nasłonecznienia (.obj)",
+                                data=solar_obj_data,
+                                file_name=solar_obj_filename,
+                                mime="model/obj",
+                                use_container_width=True
                             )
-                            if solar_obj_data:
-                                st.download_button(
-                                    label="Pobierz model 3D nasłonecznienia (.obj)",
-                                    data=solar_obj_data,
-                                    file_name=solar_obj_filename,
-                                    mime="model/obj",
-                                    use_container_width=True
-                                )
                 else:
                     st.warning("Nie udało się stworzyć siatki analitycznej dla tej działki.")
 
@@ -2356,7 +2537,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 )
 
                 st.session_state['generative_massing_deck'] = massing_deck
-                st.pydeck_chart(st.session_state['generative_massing_deck'], use_container_width=True, height=750)
+                st.pydeck_chart(st.session_state['generative_massing_deck'], use_container_width=True, height=500)
 
 
 
