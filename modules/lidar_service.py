@@ -271,7 +271,8 @@ class LidarService:
         col_end = int(min(data.shape[1], round(window.col_off + window.width)))
         
         cropped_data = data[row_start:row_end, col_start:col_end].copy()
-        cropped_transform = rasterio.windows.transform(window, transform)
+        int_window = rasterio.windows.Window(col_start, row_start, col_end - col_start, row_end - row_start)
+        cropped_transform = rasterio.windows.transform(int_window, transform)
         return cropped_data, cropped_transform
 
     def convert_dsm_to_trimesh(self, data, transform, downsample_factor=4):
@@ -291,8 +292,8 @@ class LidarService:
 
             c, r = np.meshgrid(np.arange(cols), np.arange(rows))
 
-            xs = transform.c + c * transform.a + r * transform.b
-            ys = transform.f + c * transform.d + r * transform.e
+            xs = transform.c + (c + 0.5) * transform.a + (r + 0.5) * transform.b
+            ys = transform.f + (c + 0.5) * transform.d + (r + 0.5) * transform.e
 
             grid = pv.StructuredGrid(xs, ys, data)
 

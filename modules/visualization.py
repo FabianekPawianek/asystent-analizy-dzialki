@@ -240,7 +240,6 @@ def create_lidar_lines_layer(dsm_data, dtm_data, transform, subsample=3):
 
 
 def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=1, custom_colors=None, is_building_mask=None, parcel_polygons_2180=None, layer_id="lidar_square_pillars"):
-    import math
     from matplotlib.path import Path
     
     pixel_size = abs(transform.a)
@@ -250,7 +249,7 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=1
     final_step = calculate_visualization_step(total_pixels, subsample)
     
     step_meters = pixel_size * final_step
-    radius_meters = step_meters / math.sqrt(2)
+    half_size = step_meters / 2.0
     
     r_idx = np.arange(0, rows, final_step)
     c_idx = np.arange(0, cols, final_step)
@@ -272,16 +271,9 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=1
     heights = z_dsm - z_dtm
 
     xs, ys = rasterio.transform.xy(transform, r_flat, c_flat)
-    xs = np.array(xs)
-    ys = np.array(ys)
-
-    transformer_obj = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
-    lons, lats = transformer_obj.transform(xs, ys)
-    lons = np.array(lons)
-    lats = np.array(lats)
-    
-    n = len(lons)
-    positions = np.column_stack((lons, lats, z_dtm))
+    xs = np.array(xs, dtype=np.float64)
+    ys = np.array(ys, dtype=np.float64)
+    n = len(xs)
 
     b_mask_sub = None
     if is_building_mask is not None and is_building_mask.shape == dsm_data.shape:
@@ -291,39 +283,61 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=1
     if parcel_polygons_2180:
         points_2180 = np.column_stack((xs, ys))
         for poly in parcel_polygons_2180:
-            if poly is not None and poly.is_valid:
-                poly_coords = np.array(poly.exterior.coords)
-                path = Path(poly_coords)
-                inside_parcel |= path.contains_points(points_2180)
+            if poly is not None and not poly.is_empty:
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+                if poly.geom_type == 'MultiPolygon':
+                    polys_to_check = list(poly.geoms)
+                elif poly.geom_type == 'Polygon':
+                    polys_to_check = [poly]
+                else:
+                    polys_to_check = []
+                for p_item in polys_to_check:
+                    if p_item.is_valid and not p_item.is_empty:
+                        poly_coords = np.array(p_item.exterior.coords)
+                        path = Path(poly_coords)
+                        inside_parcel |= path.contains_points(points_2180)
+
+    corners_x = np.column_stack([xs - half_size, xs + half_size, xs + half_size, xs - half_size]).ravel()
+    corners_y = np.column_stack([ys - half_size, ys - half_size, ys + half_size, ys + half_size]).ravel()
+
+    transformer_obj = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+    corners_lon, corners_lat = transformer_obj.transform(corners_x, corners_y)
+
+    polygons = np.zeros((n, 4, 3), dtype=np.float64)
+    polygons[:, :, 0] = np.asarray(corners_lon, dtype=np.float64).reshape(n, 4)
+    polygons[:, :, 1] = np.asarray(corners_lat, dtype=np.float64).reshape(n, 4)
+    polygons[:, :, 2] = np.asarray(z_dtm, dtype=np.float64)[:, None]
 
     if custom_colors is not None and len(custom_colors) == n:
         colors = [list(c) for c in custom_colors]
     else:
         colors = []
         for i in range(n):
-            if inside_parcel[i]:
-                colors.append([190, 240, 200])
-            elif b_mask_sub is not None and b_mask_sub[i] and heights[i] >= 1.50:
+            is_bldg = bool(b_mask_sub is not None and b_mask_sub[i] and heights[i] >= 1.50)
+            if is_bldg and inside_parcel[i]:
                 colors.append([130, 180, 140])
+            elif is_bldg and not inside_parcel[i]:
+                colors.append([130, 180, 140])
+            elif not is_bldg and inside_parcel[i]:
+                colors.append([190, 240, 200])
             else:
                 colors.append([160, 210, 170])
 
     pillar_data = pd.DataFrame({
-        'position': positions.tolist(),
+        'polygon': [p.tolist() for p in polygons],
         'height': heights.tolist(),
         'color': colors
     })
     
     layer = pdk.Layer(
-        "ColumnLayer",
+        "PolygonLayer",
         id=layer_id,
         data=pillar_data,
-        get_position="position",
+        get_polygon="polygon",
         get_elevation="height",
-        radius=radius_meters,
-        disk_resolution=4,
-        angle=45,
         extruded=True,
+        filled=True,
         flat_shading=True,
         get_fill_color="color",
         get_line_color=[100, 100, 100],
@@ -335,7 +349,7 @@ def create_lidar_square_pillars_layer(dsm_data, dtm_data, transform, subsample=1
     return layer, mask
 
 
-def create_lidar_square_surface_layer(dsm_data, transform, subsample=1, parcel_polygons_2180=None, custom_colors=None, is_building_mask=None, dtm_data=None, layer_id="lidar_square_surface"):
+def create_lidar_square_surface_layer(dsm_data, transform, subsample=1, parcel_polygons_2180=None, custom_colors=None, is_building_mask=None, dtm_data=None, layer_id="lidar_square_surface", exclude_parcel=False):
     from matplotlib.path import Path
     
     pixel_size = abs(transform.a)
@@ -370,67 +384,83 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=1, parcel_p
         dtm_valid = dtm_flat[valid_mask]
     
     n_points = len(xs)
-    
     if n_points == 0:
         return None, None, None
 
-    transformer_obj = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
-    lons, lats = transformer_obj.transform(xs, ys)
-    lons = np.array(lons)
-    lats = np.array(lats)
-    
-    meters_per_deg_lat = 111132.954
-    lat_off = half_size / meters_per_deg_lat
-    lon_off = half_size / (meters_per_deg_lat * np.cos(np.deg2rad(lats)))
-    
-    polygons = np.zeros((n_points, 4, 3))
-    polygons[:, 0, 0] = lons + lon_off      # NE - lon
-    polygons[:, 0, 1] = lats + lat_off      # NE - lat
-    polygons[:, 0, 2] = z_vals              # NE - z
-    polygons[:, 1, 0] = lons + lon_off      # SE - lon
-    polygons[:, 1, 1] = lats - lat_off      # SE - lat
-    polygons[:, 1, 2] = z_vals              # SE - z
-    polygons[:, 2, 0] = lons - lon_off      # SW - lon
-    polygons[:, 2, 1] = lats - lat_off      # SW - lat
-    polygons[:, 2, 2] = z_vals              # SW - z
-    polygons[:, 3, 0] = lons - lon_off      # NW - lon
-    polygons[:, 3, 1] = lats + lat_off      # NW - lat
-    polygons[:, 3, 2] = z_vals              # NW - z
-    
     b_mask_sub = None
     if is_building_mask is not None and is_building_mask.shape == dsm_data.shape:
         b_mask_sub = is_building_mask[::final_step, ::final_step].flatten()[valid_mask]
 
+    inside_parcel = np.zeros(n_points, dtype=bool)
+    if parcel_polygons_2180:
+        points_2180 = np.column_stack((xs, ys))
+        for poly in parcel_polygons_2180:
+            if poly is not None and not poly.is_empty:
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+                if poly.geom_type == 'MultiPolygon':
+                    polys_to_check = list(poly.geoms)
+                elif poly.geom_type == 'Polygon':
+                    polys_to_check = [poly]
+                else:
+                    polys_to_check = []
+                for p_item in polys_to_check:
+                    if p_item.is_valid and not p_item.is_empty:
+                        poly_coords = np.array(p_item.exterior.coords)
+                        path = Path(poly_coords)
+                        inside_parcel |= path.contains_points(points_2180)
+
+    if exclude_parcel or layer_id == "solar_lidar_surface_layer":
+        keep = ~inside_parcel
+        xs = xs[keep]
+        ys = ys[keep]
+        z_vals = z_vals[keep]
+        if dtm_valid is not None:
+            dtm_valid = dtm_valid[keep]
+        if b_mask_sub is not None:
+            b_mask_sub = b_mask_sub[keep]
+        if custom_colors is not None and len(custom_colors) == n_points:
+            custom_colors = np.asarray(custom_colors)[keep]
+        inside_parcel = inside_parcel[keep]
+        n_points = len(xs)
+
+    if n_points == 0:
+        return None, valid_mask, final_step
+
+    corners_x = np.column_stack([xs - half_size, xs + half_size, xs + half_size, xs - half_size]).ravel()
+    corners_y = np.column_stack([ys - half_size, ys - half_size, ys + half_size, ys + half_size]).ravel()
+
+    transformer_obj = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+    corners_lon, corners_lat = transformer_obj.transform(corners_x, corners_y)
+
+    polygons = np.zeros((n_points, 4, 3), dtype=np.float64)
+    polygons[:, :, 0] = np.asarray(corners_lon, dtype=np.float64).reshape(n_points, 4)
+    polygons[:, :, 1] = np.asarray(corners_lat, dtype=np.float64).reshape(n_points, 4)
+    polygons[:, :, 2] = z_vals[:, None]
+
     if custom_colors is not None and len(custom_colors) == n_points:
         colors = [list(c) for c in custom_colors]
     else:
-        inside_parcel = np.zeros(n_points, dtype=bool)
-        if parcel_polygons_2180:
-            points_2180 = np.column_stack((xs, ys))
-            for poly in parcel_polygons_2180:
-                if poly is not None and poly.is_valid:
-                    poly_coords = np.array(poly.exterior.coords)
-                    path = Path(poly_coords)
-                    inside_parcel |= path.contains_points(points_2180)
-        
         colors = []
         for i in range(n_points):
             is_bldg = bool(b_mask_sub is not None and b_mask_sub[i])
             if is_bldg and dtm_valid is not None and not np.isnan(dtm_valid[i]):
                 if (z_vals[i] - dtm_valid[i]) < 1.50:
                     is_bldg = False
-            if inside_parcel[i]:
+            if is_bldg and inside_parcel[i]:
                 colors.append([190, 240, 200])
-            elif is_bldg:
+            elif is_bldg and not inside_parcel[i]:
                 colors.append([130, 180, 140])
+            elif not is_bldg and inside_parcel[i]:
+                colors.append([190, 240, 200])
             else:
                 colors.append([160, 210, 170])
-    
+
     surface_data = pd.DataFrame({
         'polygon': [p.tolist() for p in polygons],
         'color': colors
     })
-    
+
     layer = pdk.Layer(
         "PolygonLayer",
         id=layer_id,
@@ -444,7 +474,7 @@ def create_lidar_square_surface_layer(dsm_data, transform, subsample=1, parcel_p
         pickable=False,
         material=False,
     )
-    
+
     return layer, valid_mask, final_step
 
 
@@ -513,29 +543,39 @@ def create_solar_analysis_layers(
             has_z = 'z' in solar_results.columns
             
             if has_z:
-                meters_per_deg_lat = 111132.954
-                lat_offset = 0.5 / meters_per_deg_lat
-                
-                lons = solar_results['lon'].to_numpy()
-                lats = solar_results['lat'].to_numpy()
+                if grid_points_metric is not None and len(grid_points_metric) == len(solar_results):
+                    xs = np.asarray(grid_points_metric)[:, 0]
+                    ys = np.asarray(grid_points_metric)[:, 1]
+                elif 'x_2180' in solar_results.columns and 'y_2180' in solar_results.columns:
+                    xs = solar_results['x_2180'].to_numpy()
+                    ys = solar_results['y_2180'].to_numpy()
+                else:
+                    transformer_from_wgs = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
+                    xs, ys = transformer_from_wgs.transform(solar_results['lon'].to_numpy(), solar_results['lat'].to_numpy())
+
+                n_pts = len(solar_results)
                 zs = solar_results['z'].to_numpy()
                 vals = solar_results['value'].to_numpy()
-                lon_offsets = 0.5 / (meters_per_deg_lat * np.cos(np.deg2rad(lats)))
-                
-                n_pts = len(lons)
-                polygons = np.zeros((n_pts, 4, 3))
-                polygons[:, 0, 0] = lons - lon_offsets
-                polygons[:, 0, 1] = lats - lat_offset
-                polygons[:, 0, 2] = zs
-                polygons[:, 1, 0] = lons + lon_offsets
-                polygons[:, 1, 1] = lats - lat_offset
-                polygons[:, 1, 2] = zs
-                polygons[:, 2, 0] = lons + lon_offsets
-                polygons[:, 2, 1] = lats + lat_offset
-                polygons[:, 2, 2] = zs
-                polygons[:, 3, 0] = lons - lon_offsets
-                polygons[:, 3, 1] = lats + lat_offset
-                polygons[:, 3, 2] = zs
+
+                half_size = 0.5
+                if len(xs) > 1:
+                    diffs_x = np.abs(np.diff(xs))
+                    valid_diffs_x = diffs_x[diffs_x > 0.01]
+                    if len(valid_diffs_x) > 0:
+                        step_x = np.min(valid_diffs_x)
+                        if 0.1 <= step_x <= 10.0:
+                            half_size = step_x / 2.0
+
+                corners_x = np.column_stack([xs - half_size, xs + half_size, xs + half_size, xs - half_size]).ravel()
+                corners_y = np.column_stack([ys - half_size, ys - half_size, ys + half_size, ys + half_size]).ravel()
+
+                transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+                corners_lon, corners_lat = transformer_to_wgs.transform(corners_x, corners_y)
+
+                polygons = np.zeros((n_pts, 4, 3), dtype=np.float64)
+                polygons[:, :, 0] = corners_lon.reshape(n_pts, 4)
+                polygons[:, :, 1] = corners_lat.reshape(n_pts, 4)
+                polygons[:, :, 2] = zs[:, None]
                 
                 if max_h <= min_h:
                     norm_vals = np.full(n_pts, 0.5)

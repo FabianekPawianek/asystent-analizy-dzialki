@@ -15,6 +15,9 @@ from pyproj import Transformer
 from shapely.geometry import Polygon
 from shapely.ops import transform
 from shapely import wkt
+import rasterio
+import rasterio.transform
+import rasterio.windows
 import trimesh
 
 import config
@@ -321,7 +324,6 @@ def get_cached_lidar_data(bbox):
             p_dsm, p_dtm, p_transform, p_bbox = cached_parent
             if (p_bbox[0] <= bbox[0] + 1.0 and p_bbox[1] <= bbox[1] + 1.0 and
                 p_bbox[2] >= bbox[2] - 1.0 and p_bbox[3] >= bbox[3] - 1.0):
-                import rasterio.windows
                 window = rasterio.windows.from_bounds(bbox[0], bbox[1], bbox[2], bbox[3], transform=p_transform)
                 window = window.intersection(rasterio.windows.Window(0, 0, p_dsm.shape[1], p_dsm.shape[0]))
                 row_start = int(max(0, round(window.row_off)))
@@ -331,7 +333,8 @@ def get_cached_lidar_data(bbox):
                 if (row_end > row_start) and (col_end > col_start):
                     dsm_crop = p_dsm[row_start:row_end, col_start:col_end].copy()
                     dtm_crop = p_dtm[row_start:row_end, col_start:col_end].copy()
-                    crop_transform = rasterio.windows.transform(window, p_transform)
+                    int_window = rasterio.windows.Window(col_start, row_start, col_end - col_start, row_end - row_start)
+                    crop_transform = rasterio.windows.transform(int_window, p_transform)
                     print(f"DEBUG LIDAR: Cropped target sub-window directly from RAM in 0.001s! Shape={dsm_crop.shape}", flush=True)
                     return dsm_crop, crop_transform, dtm_crop, crop_transform
     except Exception as e_crop:
@@ -358,9 +361,9 @@ def get_cached_lidar_data(bbox):
         raise e
 
 @st.cache_data(show_spinner=False)
-def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parcel_geoms_wkt, grid_points_metric, calc_downsample: int = 4, ignore_trees: bool = False, lidar_bbox: tuple = None):
+def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parcel_geoms_wkt, grid_points_metric, calc_downsample: int = 1, ignore_trees: bool = False, lidar_bbox: tuple = None, include_parcel_buildings: bool = True):
     try:
-        parcel_geoms = [wkt.loads(g) for g in parcel_geoms_wkt]
+        parcel_geoms = [wkt.loads(g) if isinstance(g, str) else g for g in parcel_geoms_wkt]
         
         lidar_service = LidarService()
 
@@ -389,14 +392,22 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
         dtm_for_viz = dtm_data.copy()
 
         if parcel_geoms:
-            dsm_for_calc = lidar_service.flatten_dsm_on_parcel(dsm_for_calc, dtm_data, _transform, parcel_geoms, fill_with_nan=False)
-            dsm_for_viz = lidar_service.flatten_dsm_on_parcel(dsm_for_viz, dtm_data, _transform, parcel_geoms, fill_with_nan=True)
-            dtm_for_viz = lidar_service.flatten_dsm_on_parcel(dtm_for_viz, dtm_data, _transform, parcel_geoms, fill_with_nan=True)
+            dsm_for_calc, dsm_for_surface, dtm_for_surface, _, parcel_building_mask = solar.process_solar_parcel_dsm(
+                dsm_for_calc, dtm_data, _transform, parcel_geoms,
+                is_building_mask=is_building_mask,
+                building_polygons=building_polygons,
+                include_parcel_buildings=include_parcel_buildings
+            )
+            if not include_parcel_buildings and is_building_mask is not None and parcel_building_mask is not None:
+                is_building_mask = is_building_mask & (~parcel_building_mask)
+        else:
+            dsm_for_surface = dsm_for_calc.copy()
+            dtm_for_surface = dtm_data.copy()
         
         lidar_layers = []
         
         pillars_layer, _ = visualization.create_lidar_square_pillars_layer(
-            dsm_for_viz, dtm_for_viz, _transform, subsample=1,
+            dsm_for_calc, dtm_data, _transform, subsample=1,
             is_building_mask=is_building_mask,
             parcel_polygons_2180=parcel_geoms,
             layer_id="solar_lidar_pillars_layer"
@@ -405,20 +416,27 @@ def prepare_lidar_geometry(dsm_data, dtm_data, _transform, _dtm_transform, parce
             lidar_layers.append(pillars_layer)
         
         surface_layer, _, _ = visualization.create_lidar_square_surface_layer(
-            dsm_for_viz, _transform, subsample=1,
+            dsm_for_surface, _transform, subsample=1,
             parcel_polygons_2180=parcel_geoms,
             is_building_mask=is_building_mask,
-            dtm_data=dtm_for_viz,
-            layer_id="solar_lidar_surface_layer"
+            dtm_data=dtm_for_surface,
+            layer_id="solar_lidar_surface_layer",
+            exclude_parcel=True
         )
         if surface_layer:
             lidar_layers.append(surface_layer)
         
+        if len(grid_points_metric) > 0:
+            grid_points_metric = grid_points_metric.copy()
+            r, c = rasterio.transform.rowcol(_transform, grid_points_metric[:, 0], grid_points_metric[:, 1])
+            snap_x, snap_y = rasterio.transform.xy(_transform, r, c)
+            grid_points_metric[:, 0] = np.asarray(snap_x, dtype=np.float64)
+            grid_points_metric[:, 1] = np.asarray(snap_y, dtype=np.float64)
+            z_values = lidar_service.sample_height_for_points(dsm_for_calc, _transform, grid_points_metric[:, :2])
+            grid_points_metric[:, 2] = np.asarray(z_values, dtype=np.float64)
+
         print(f"DEBUG: Creating Trimesh with downsample_factor={calc_downsample} (ignore_trees={ignore_trees})", flush=True)
         scene = lidar_service.convert_dsm_to_trimesh(dsm_for_calc, _transform, downsample_factor=calc_downsample)
-        
-        z_values = lidar_service.sample_height_for_points(dtm_data, _dtm_transform, grid_points_metric[:, :2])
-        grid_points_metric[:, 2] = z_values + 0.5
         
         return scene, grid_points_metric, lidar_layers
     except Exception as e:
@@ -460,27 +478,42 @@ def get_lidar_raw_xyz_bytes(bbox):
     return LidarService().export_dsm_to_xyz_raw(dsm_data, transform)
 
 @st.cache_data(show_spinner=False)
-def get_solar_3d_obj_bytes(lidar_bbox, parcel_geoms_wkt, grid_points_metric, sunlit_hours, max_hours=None, downsample: int = 2, ignore_trees: bool = False):
+def get_solar_3d_obj_bytes(lidar_bbox, parcel_geoms_wkt, grid_points_metric, sunlit_hours, max_hours=None, downsample: int = 2, ignore_trees: bool = False, include_parcel_buildings: bool = True):
     try:
         dsm_raw, transform, dtm_raw, _ = get_cached_lidar_data(lidar_bbox)
         lidar_service = LidarService()
 
-        if ignore_trees:
+        building_polygons = []
+        is_building_mask = None
+        if lidar_bbox:
             building_polygons = get_parcel_buildings(lidar_bbox)
-            dsm_raw, is_building_mask = solar.prepare_building_dsm(dsm_raw, dtm_raw, transform, building_polygons)
+            is_building_mask = solar.create_building_mask(dsm_raw.shape, transform, building_polygons, dsm_data=dsm_raw, dtm_data=dtm_raw)
+
+        if ignore_trees and is_building_mask is not None:
+            dsm_raw, is_building_mask = solar.prepare_building_dsm(dsm_raw, dtm_raw, transform, building_polygons, is_building_mask=is_building_mask)
+
+        if parcel_geoms_wkt:
+            dsm_for_obj, _, _, _, _ = solar.process_solar_parcel_dsm(
+                dsm_raw, dtm_raw, transform, parcel_geoms_wkt,
+                is_building_mask=is_building_mask,
+                building_polygons=building_polygons,
+                include_parcel_buildings=include_parcel_buildings
+            )
+        else:
+            dsm_for_obj = dsm_raw
 
         return lidar_service.export_solar_trimesh_to_obj(
-            dsm_data=dsm_raw,
+            dsm_data=dsm_for_obj,
             dtm_data=dtm_raw,
             transform=transform,
-            parcel_geoms=parcel_geoms_wkt,
+            parcel_geoms=None,
             grid_points_metric=grid_points_metric,
             sunlit_hours=sunlit_hours,
             max_hours=max_hours,
             downsample_factor=downsample
         )
     except Exception as e:
-        logger.error(f"Error generating solar 3D OBJ bytes: {e}")
+        print(f"Error generating solar 3D OBJ bytes: {e}", flush=True)
         return b""
 
 
@@ -497,7 +530,8 @@ def run_solar_simulation(
         lidar_bbox: tuple = None,
         target_parcel_geometry = None,
         progress_container = None,
-        ignore_trees: bool = False
+        ignore_trees: bool = False,
+        include_parcel_buildings: bool = True
 ) -> np.ndarray:
     
     print(f"DEBUG TRACER: Wszedłem do run_solar_simulation. use_lidar={use_lidar}, freq={freq}, ignore_trees={ignore_trees}", flush=True)
@@ -536,13 +570,11 @@ def run_solar_simulation(
         
         max_dim = max(width_m, height_m)
         if max_dim >= 1500:
-            calc_downsample = 8  # ~64x mniej trójkątów
+            calc_downsample = 4
         elif max_dim >= 800:
-            calc_downsample = 6  # ~36x mniej trójkątów
-        elif max_dim >= 400:
-            calc_downsample = 4  # ~16x mniej trójkątów (domyślnie)
+            calc_downsample = 2
         else:
-            calc_downsample = 2  # Mały obszar - wysoka dokładność
+            calc_downsample = 1
         
         print(f"DEBUG: calc_downsample={calc_downsample} (max_dim={max_dim:.0f}m)", flush=True)
 
@@ -566,7 +598,8 @@ def run_solar_simulation(
                 dsm_data, dtm_data, transform, dtm_transform, parcel_geoms_wkt, grid_points_metric,
                 calc_downsample=calc_downsample,
                 ignore_trees=ignore_trees,
-                lidar_bbox=lidar_bbox
+                lidar_bbox=lidar_bbox,
+                include_parcel_buildings=include_parcel_buildings
             )
             
             st.session_state['lidar_point_cloud_layer'] = lidar_layers
@@ -595,7 +628,7 @@ def run_solar_simulation(
         progress_container=progress_container
     )
     
-    return sunlit_hours
+    return sunlit_hours, grid_points_metric
 
 
 
@@ -1501,7 +1534,8 @@ if st.session_state.show_search or st.session_state.map_center:
             'generative_massing_layer', 'generative_massing_deck', 'mpzp_data',
             'pog_data', 'current_lidar_bbox', 'is_building_mask',
             'cached_building_polygons', 'cached_parent_lidar',
-            'solar_3d_deck', 'solar_3d_deck_key', 'osm_3d_deck', 'osm_3d_deck_key'
+            'solar_3d_deck', 'solar_3d_deck_key', 'osm_3d_deck', 'osm_3d_deck_key',
+            'lidar_3d_deck', 'lidar_3d_cache_key', 'lidar_3d_bbox', 'lidar_3d_parcels_key'
         ]
         for k in reset_keys:
             if k in st.session_state:
@@ -1564,7 +1598,7 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.session_state.selected_parcels.append(parcel_data)
                         st.success(f"Działka {parcel_data['ID Działki']} zaznaczona")
                     
-                    for key in ['lidar_3d_deck', 'lidar_3d_bbox', 'lidar_3d_parcels_key', 'osm_3d_deck', 'osm_3d_deck_key', 'solar_3d_deck', 'solar_3d_deck_key']:
+                    for key in ['lidar_3d_deck', 'lidar_3d_cache_key', 'lidar_3d_bbox', 'lidar_3d_parcels_key', 'osm_3d_deck', 'osm_3d_deck_key', 'solar_3d_deck', 'solar_3d_deck_key']:
                         st.session_state.pop(key, None)
                     
                     coords_2180 = parcel_data["Współrzędne EPSG:2180"]
@@ -1647,7 +1681,7 @@ if st.session_state.show_search or st.session_state.map_center:
             avg_x = sum(p[0] for p in all_coords) / len(all_coords)
             avg_y = sum(p[1] for p in all_coords) / len(all_coords)
             map_center_lon, map_center_lat = geospatial.transform_single_coord(avg_x, avg_y, "2180", "4326")
-            map_center = (map_center_lat, map_center_lon)
+            map_center = (round(map_center_lat, 7), round(map_center_lon, 7))
 
             selected_map_style = "light"
 
@@ -1658,16 +1692,18 @@ if st.session_state.show_search or st.session_state.map_center:
                 maxx = max(p[0] for p in all_coords)
                 miny = min(p[1] for p in all_coords)
                 maxy = max(p[1] for p in all_coords)
-                buffer = st.session_state.radius_3d_value
-                current_lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
+                buffer = float(st.session_state.radius_3d_value)
+                current_lidar_bbox = (
+                    float(np.floor(minx - buffer)),
+                    float(np.floor(miny - buffer)),
+                    float(np.ceil(maxx + buffer)),
+                    float(np.ceil(maxy + buffer))
+                )
 
                 parcel_ids_key = tuple(sorted([p['ID Działki'] for p in st.session_state.selected_parcels]))
-                cache_key = (current_lidar_bbox, parcel_ids_key)
+                lidar_3d_cache_key = (current_lidar_bbox, parcel_ids_key, selected_map_style, "lidar")
 
-                cached_bbox = st.session_state.get('lidar_3d_bbox')
-                cached_parcels = st.session_state.get('lidar_3d_parcels_key')
-
-                needs_refresh = (cached_bbox != current_lidar_bbox or cached_parcels != parcel_ids_key
+                needs_refresh = (st.session_state.get('lidar_3d_cache_key') != lidar_3d_cache_key
                                  or 'lidar_3d_deck' not in st.session_state)
 
                 if needs_refresh:
@@ -1737,8 +1773,8 @@ if st.session_state.show_search or st.session_state.map_center:
                             )
 
                             st.session_state['lidar_3d_deck'] = deck_3d_view
+                            st.session_state['lidar_3d_cache_key'] = lidar_3d_cache_key
                             st.session_state['lidar_3d_bbox'] = current_lidar_bbox
-
                             st.session_state['lidar_3d_parcels_key'] = parcel_ids_key
 
                         except Exception as e:
@@ -1746,6 +1782,10 @@ if st.session_state.show_search or st.session_state.map_center:
                             st.error(f"Błąd generowania danych LiDAR: {e}")
                             use_lidar_3d = False
                             st.session_state.pop('lidar_3d_deck', None)
+                            st.session_state.pop('lidar_3d_cache_key', None)
+
+                    if use_lidar_3d and 'lidar_3d_deck' in st.session_state:
+                        st.rerun()
 
                 if use_lidar_3d and 'lidar_3d_deck' in st.session_state:
                     st.markdown("""
@@ -1797,7 +1837,7 @@ if st.session_state.show_search or st.session_state.map_center:
             if not use_lidar_3d:
                 parcel_ids_key = tuple(sorted([p['ID Działki'] for p in st.session_state.selected_parcels]))
                 osm_radius = st.session_state.radius_3d_value
-                osm_cache_key = (parcel_ids_key, osm_radius, selected_map_style, map_center)
+                osm_cache_key = (parcel_ids_key, osm_radius, selected_map_style, map_center, "osm")
                 needs_osm_refresh = (st.session_state.get('osm_3d_deck_key') != osm_cache_key
                                      or 'osm_3d_deck' not in st.session_state)
 
@@ -1826,6 +1866,9 @@ if st.session_state.show_search or st.session_state.map_center:
                             )
                         st.session_state['osm_3d_deck'] = deck_3d_view
                         st.session_state['osm_3d_deck_key'] = osm_cache_key
+
+                    if 'osm_3d_deck' in st.session_state and st.session_state['osm_3d_deck']:
+                        st.rerun()
 
                 if 'osm_3d_deck' in st.session_state and st.session_state['osm_3d_deck']:
                     st.markdown("""
@@ -1937,11 +1980,18 @@ if st.session_state.show_search or st.session_state.map_center:
                 horizontal=True
             )
 
-            ignore_trees = st.checkbox(
-                "Uwzględnij tylko cienie budynków/ignoruj flore",
-                value=False,
-                help="https://www.researchgate.net/figure/Fig-12-Shading-of-trees-in-summer-and-winter_fig11_312383574"
-            )
+            col_opt1, col_opt2 = st.columns(2)
+            with col_opt1:
+                ignore_trees = st.checkbox(
+                    "Ignoruj drzewa/nieszkodliwy cień",
+                    value=True,
+                    help="Cień rzucany przez drzewa jest sezonowy, przez co dostosowuje się do panujących warunków (cień latem, słońce zimą)"
+                )
+            with col_opt2:
+                include_parcel_buildings = st.checkbox(
+                    "Uwzględnij budynki na działce",
+                    value=True,
+                )
 
             freq_map = {
                 "1 godzina": "1H",
@@ -1967,7 +2017,8 @@ if st.session_state.show_search or st.session_state.map_center:
                             'sampling_freq': sampling_freq,
                             'data_source': data_source,
                             'analysis_radius': radius_solar,
-                            'ignore_trees': ignore_trees
+                            'ignore_trees': ignore_trees,
+                            'include_parcel_buildings': include_parcel_buildings
                         }
                         st.rerun()
 
@@ -1980,6 +2031,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 data_source = params['data_source']
                 analysis_radius = params.get('analysis_radius', 100)
                 ignore_trees = params.get('ignore_trees', False)
+                include_parcel_buildings = params.get('include_parcel_buildings', True)
 
                 from shapely.geometry import Polygon as ShapelyPolygon
                 from shapely.ops import unary_union
@@ -2112,12 +2164,18 @@ if st.session_state.show_search or st.session_state.map_center:
 
                         if use_lidar:
                             minx, miny, maxx, maxy = parcel_poly_2180.bounds
-                            buffer = analysis_radius
-                            lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
+                            buffer = float(analysis_radius)
+                            lidar_bbox = (
+                                float(np.floor(minx - buffer)),
+                                float(np.floor(miny - buffer)),
+                                float(np.ceil(maxx + buffer)),
+                                float(np.ceil(maxy + buffer))
+                            )
                             progress_container = st.empty()
 
+                        updated_grid_points = grid_points_2180
                         for single_date in date_range:
-                            result = run_solar_simulation(
+                            sim_out = run_solar_simulation(
                                 buildings_data_for_cache,
                                 grid_points_2180,
                                 analysis_map_center[0], analysis_map_center[1], single_date,
@@ -2127,11 +2185,17 @@ if st.session_state.show_search or st.session_state.map_center:
                                 lidar_bbox=lidar_bbox,
                                 target_parcel_geometry=parcel_poly_2180 if use_lidar else None,
                                 progress_container=progress_container,
-                                ignore_trees=ignore_trees
+                                ignore_trees=ignore_trees,
+                                include_parcel_buildings=include_parcel_buildings
                             )
 
-                            if result is None:
+                            if sim_out is None:
                                 continue
+                            if isinstance(sim_out, tuple):
+                                result, updated_grid_points = sim_out
+                                grid_points_2180 = updated_grid_points
+                            else:
+                                result = sim_out
                             if not isinstance(result, np.ndarray):
                                 result = np.array(result, dtype=np.float32)
                             elif result.dtype != np.float32:
@@ -2139,12 +2203,15 @@ if st.session_state.show_search or st.session_state.map_center:
 
                             total_sunlit_hours += result
 
+                        grid_points_2180 = updated_grid_points
                         average_sunlit_hours = total_sunlit_hours / len(date_range)
                         transformer_to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
                         grid_points_wgs84 = np.array(
                             [(*transformer_to_wgs.transform(p[0], p[1]), p[2]) for p in grid_points_2180])
                         results_df = pd.DataFrame(grid_points_wgs84, columns=['lon', 'lat', 'z'])
                         results_df['sun_hours'] = average_sunlit_hours
+                        results_df['x_2180'] = grid_points_2180[:, 0]
+                        results_df['y_2180'] = grid_points_2180[:, 1]
                         viz_date = date_range[len(date_range) // 2]
                         if lidar_bbox:
                             center_x = (lidar_bbox[0] + lidar_bbox[2]) / 2.0
@@ -2201,8 +2268,13 @@ if st.session_state.show_search or st.session_state.map_center:
 
                         if not lidar_bbox and parcel_poly_2180 is not None:
                             minx, miny, maxx, maxy = parcel_poly_2180.bounds
-                            buffer = analysis_radius
-                            lidar_bbox = (minx - buffer, miny - buffer, maxx + buffer, maxy + buffer)
+                            buffer = float(analysis_radius)
+                            lidar_bbox = (
+                                float(np.floor(minx - buffer)),
+                                float(np.floor(miny - buffer)),
+                                float(np.ceil(maxx + buffer)),
+                                float(np.ceil(maxy + buffer))
+                            )
 
                         st.session_state.solar_analysis_results = {"results_df": results_df,
                                                                    "grid_points_metric": grid_points_2180,
@@ -2219,7 +2291,8 @@ if st.session_state.show_search or st.session_state.map_center:
                                                                    "analysis_map_center": analysis_map_center,
                                                                    "data_source": data_source,
                                                                    "diagram_scale_factor": diagram_scale_factor,
-                                                                   "ignore_trees": ignore_trees}
+                                                                   "ignore_trees": ignore_trees,
+                                                                   "include_parcel_buildings": include_parcel_buildings}
                     else:
                         st.session_state.solar_analysis_results = None
 
@@ -2253,7 +2326,8 @@ if st.session_state.show_search or st.session_state.map_center:
                         data.get('data_source'),
                         diagram_scale,
                         len(results_df),
-                        is_lidar
+                        is_lidar,
+                        data.get('include_parcel_buildings', True)
                     )
 
                     if 'solar_3d_deck' not in st.session_state or st.session_state.get('solar_3d_deck_key') != solar_deck_cache_key:
@@ -2261,7 +2335,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             parcel_coords_wgs_84=parcel_coords,
                             map_center_wgs_84=data['analysis_map_center'],
                             solar_results=results_df,
-                            grid_points_metric=None,
+                            grid_points_metric=data.get('grid_points_metric'),
                             sun_path_data=data['sun_paths'],
                             analemma_data=data['analemmas'],
                             azimuth_data=(data['azimuth_markers'], data['azimuth_lines']),
@@ -2337,7 +2411,8 @@ if st.session_state.show_search or st.session_state.map_center:
                             data["grid_points_metric"],
                             data["sunlit_hours"],
                             data.get("max_hours"),
-                            ignore_trees=data.get("ignore_trees", False)
+                            ignore_trees=data.get("ignore_trees", False),
+                            include_parcel_buildings=data.get("include_parcel_buildings", True)
                         )
                         if solar_obj_data:
                             st.download_button(
@@ -2492,7 +2567,12 @@ if st.session_state.show_search or st.session_state.map_center:
                             sunlit_hours = solar_data.get('sunlit_hours') if (solar_data and isinstance(solar_data, dict)) else None
 
                             minx, miny, maxx, maxy = parcel_poly_2180.bounds
-                            lidar_bbox = (minx - 100, miny - 100, maxx + 100, maxy + 100)
+                            lidar_bbox = (
+                                float(np.floor(minx - 100)),
+                                float(np.floor(miny - 100)),
+                                float(np.ceil(maxx + 100)),
+                                float(np.ceil(maxy + 100))
+                            )
 
                             try:
                                 dsm_data, transform, dtm_data, _ = get_cached_lidar_data(lidar_bbox)
@@ -2520,7 +2600,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             st.session_state.generative_intent_info = intent_info
 
                             if massing_points:
-                                st.success(f"Pomyślnie wygenerowano koncepcję kubaturową 3D ({len(massing_points)} woksali).")
+                                st.rerun()
                             else:
                                 st.warning("Nie udało się wygenerować woksali dla tej działki.")
                         else:

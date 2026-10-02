@@ -416,6 +416,137 @@ def prepare_building_dsm(dsm_data, dtm_data, transform, building_polygons_2180, 
 
     return dsm_cleaned, building_mask
 
+
+def process_solar_parcel_dsm(
+    dsm_data: np.ndarray,
+    dtm_data: np.ndarray,
+    transform,
+    parcel_geoms: list,
+    is_building_mask: np.ndarray = None,
+    building_polygons: list = None,
+    include_parcel_buildings: bool = True
+):
+    from shapely.ops import unary_union
+    from shapely.geometry.base import BaseGeometry
+    from shapely import wkt
+
+    rows, cols = dsm_data.shape
+    dsm_for_calc = dsm_data.copy()
+
+    if not parcel_geoms:
+        return dsm_for_calc, dsm_for_calc.copy(), dtm_data.copy(), np.zeros((rows, cols), dtype=bool), np.zeros((rows, cols), dtype=bool)
+
+    parsed_parcel_geoms = []
+    for g in parcel_geoms:
+        if isinstance(g, str):
+            try:
+                parsed_g = wkt.loads(g)
+                if parsed_g.is_valid and not parsed_g.is_empty:
+                    parsed_parcel_geoms.append(parsed_g)
+                elif not parsed_g.is_empty:
+                    fixed_g = parsed_g.buffer(0)
+                    if not fixed_g.is_empty:
+                        parsed_parcel_geoms.append(fixed_g)
+            except Exception:
+                pass
+        elif isinstance(g, BaseGeometry) and not g.is_empty:
+            if g.is_valid:
+                parsed_parcel_geoms.append(g)
+            else:
+                fixed_g = g.buffer(0)
+                if not fixed_g.is_empty:
+                    parsed_parcel_geoms.append(fixed_g)
+
+    if not parsed_parcel_geoms:
+        return dsm_for_calc, dsm_for_calc.copy(), dtm_data.copy(), np.zeros((rows, cols), dtype=bool), np.zeros((rows, cols), dtype=bool)
+
+    parcel_mask = rasterio.features.geometry_mask(
+        parsed_parcel_geoms,
+        transform=transform,
+        out_shape=(rows, cols),
+        invert=True,
+        all_touched=False
+    )
+    parcel_mask_touch = rasterio.features.geometry_mask(
+        parsed_parcel_geoms,
+        transform=transform,
+        out_shape=(rows, cols),
+        invert=True,
+        all_touched=True
+    )
+
+    if not np.any(parcel_mask_touch):
+        return dsm_for_calc, dsm_for_calc.copy(), dtm_data.copy(), parcel_mask, np.zeros((rows, cols), dtype=bool)
+
+    if is_building_mask is None:
+        diff = dsm_data - dtm_data
+        is_building_mask = (diff >= 1.50) & (~np.isnan(diff))
+
+    parcel_union = unary_union(parsed_parcel_geoms)
+    parcel_building_mask = np.zeros((rows, cols), dtype=bool)
+    bldg_geom_mask = np.zeros((rows, cols), dtype=bool)
+
+    parcel_building_polys = []
+    other_building_polys = []
+    if parcel_union is not None and not parcel_union.is_empty and building_polygons:
+        for b_poly in building_polygons:
+            if b_poly and not b_poly.is_empty:
+                if b_poly.intersects(parcel_union):
+                    inter_area = b_poly.intersection(parcel_union).area
+                    b_area = b_poly.area
+                    ratio = (inter_area / b_area) if b_area > 0 else 0.0
+                    if ratio >= 0.15 or inter_area >= 10.0:
+                        parcel_building_polys.append(b_poly)
+                    else:
+                        other_building_polys.append(b_poly)
+                else:
+                    other_building_polys.append(b_poly)
+
+    if parcel_building_polys:
+        other_union = unary_union(other_building_polys) if other_building_polys else None
+        bldg_buffered = []
+        for p in parcel_building_polys:
+            buffered = p.buffer(0.8)
+            if other_union is not None and not other_union.is_empty:
+                buffered = buffered.difference(other_union)
+            if not buffered.is_empty:
+                bldg_buffered.append(buffered)
+
+        if bldg_buffered:
+            bldg_geom_mask = rasterio.features.geometry_mask(
+                bldg_buffered,
+                transform=transform,
+                out_shape=(rows, cols),
+                invert=True,
+                all_touched=True
+            )
+            parcel_building_mask = is_building_mask & bldg_geom_mask
+        else:
+            parcel_building_mask = is_building_mask & parcel_mask_touch
+    elif np.any(parcel_mask_touch & is_building_mask):
+        struct_8 = np.ones((3, 3), dtype=bool)
+        labeled_bldg, _ = scipy.ndimage.label(is_building_mask, structure=struct_8)
+        labels_on_parcel = np.unique(labeled_bldg[parcel_mask_touch & is_building_mask])
+        labels_on_parcel = labels_on_parcel[labels_on_parcel > 0]
+        parcel_building_mask = np.isin(labeled_bldg, labels_on_parcel)
+        parcel_dilated = scipy.ndimage.binary_dilation(parcel_mask_touch, iterations=2)
+        bldg_geom_mask = parcel_building_mask & parcel_dilated
+
+    if include_parcel_buildings:
+        non_building_parcel = parcel_mask_touch & (~parcel_building_mask)
+        dsm_for_calc[non_building_parcel] = dtm_data[non_building_parcel]
+    else:
+        flatten_mask = parcel_mask_touch | parcel_building_mask | bldg_geom_mask
+        dsm_for_calc[flatten_mask] = dtm_data[flatten_mask]
+
+    dsm_for_surface = dsm_for_calc.copy()
+    dtm_for_surface = dtm_data.copy()
+    dsm_for_surface[parcel_mask_touch] = np.nan
+    dtm_for_surface[parcel_mask_touch] = np.nan
+
+    return dsm_for_calc, dsm_for_surface, dtm_for_surface, parcel_mask, parcel_building_mask
+
+
 def calculate_sun_positions(lat: float, lon: float, date: datetime.date, hour_range: tuple, freq: str = "1H", tz='Europe/Warsaw'):
     start_hour, end_hour = hour_range
     times = pd.date_range(
@@ -550,7 +681,8 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
 
         for start_idx in range(0, total_points, batch_size):
             end_idx = min(start_idx + batch_size, total_points)
-            batch_origins = grid_points[start_idx:end_idx]
+            batch_origins = grid_points[start_idx:end_idx].copy()
+            batch_origins[:, 2] += 0.50
 
             ray_directions = np.tile(sun_direction, (len(batch_origins), 1)).astype(np.float32)
 
@@ -563,13 +695,13 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
             is_lit_batch = np.ones(len(batch_origins), dtype=bool)
             if len(locations) > 0:
                 distances = np.linalg.norm(locations - batch_origins[index_ray], axis=1)
-                valid_hits = distances < max_ray_distance
+                valid_hits = (distances > 0.005) & (distances < max_ray_distance)
                 shadowed_ray_indices = np.unique(index_ray[valid_hits])
                 is_lit_batch[shadowed_ray_indices] = False
 
             sunlit_hours[start_idx:end_idx] += is_lit_batch * time_step_weight
 
-            del locations, index_ray, ray_directions, is_lit_batch
+            del locations, index_ray, ray_directions, is_lit_batch, batch_origins
             gc.collect()
 
         gc.collect()
@@ -580,8 +712,12 @@ def calculate_shadows(scene: trimesh.Scene, grid_points: np.ndarray, sun_positio
 def create_analysis_grid(parcel_polygon: Polygon, density: float = 1.0) -> np.ndarray:
     bounds = parcel_polygon.bounds
     min_x, min_y, max_x, max_y = bounds
-    x_coords = np.arange(min_x, max_x, density)
-    y_coords = np.arange(min_y, max_y, density)
+    start_x = np.floor(min_x / density) * density + 0.5 * density
+    end_x = np.ceil(max_x / density) * density
+    x_coords = np.arange(start_x, end_x, density)
+    start_y = np.floor(min_y / density) * density + 0.5 * density
+    end_y = np.ceil(max_y / density) * density
+    y_coords = np.arange(start_y, end_y, density)
     mesh_x, mesh_y = np.meshgrid(x_coords, y_coords)
     points = np.vstack([mesh_x.ravel(), mesh_y.ravel()]).T
 
