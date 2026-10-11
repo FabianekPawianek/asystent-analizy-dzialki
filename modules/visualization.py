@@ -11,6 +11,23 @@ import modules.geospatial as geospatial
 MAX_VISUALIZATION_POINTS = 500000
 
 
+def get_native_3d_view(drag_mode="rotate"):
+    return pdk.View(
+        type="MapView",
+        controller={
+            "dragMode": drag_mode,
+            "multiTouchDrag": "pan",
+            "dragRotate": True,
+            "touchRotate": True,
+            "touchZoom": True,
+            "dragPan": True,
+            "scrollZoom": True,
+            "doubleClickZoom": True,
+            "inertia": True,
+        },
+    )
+
+
 def calculate_visualization_step(total_pixels: int, user_subsample: int = 1) -> int:
     if total_pixels > MAX_VISUALIZATION_POINTS:
         auto_step = int(np.ceil(np.sqrt(total_pixels / MAX_VISUALIZATION_POINTS)))

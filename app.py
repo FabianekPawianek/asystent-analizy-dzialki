@@ -60,6 +60,7 @@ def generate_3d_context_view_multiple_parcels(all_parcel_coords_list, map_center
         return pdk.Deck(
             layers=layers,
             initial_view_state=view_state,
+            views=[visualization.get_native_3d_view()],
             map_style=map_style
         )
 
@@ -115,6 +116,7 @@ def create_3d_view_with_filled_parcels(combined_polygon, map_center_wgs_84, map_
         return pdk.Deck(
             layers=layers_to_render,
             initial_view_state=view_state,
+            views=[visualization.get_native_3d_view()],
             map_style=map_style
         )
 
@@ -157,6 +159,7 @@ def generate_3d_context_view(parcel_coords_wgs_84, map_center_wgs_84, map_style:
         return pdk.Deck(
             layers=layers_to_render,
             initial_view_state=view_state,
+            views=[visualization.get_native_3d_view()],
             map_style=map_style
         )
 
@@ -1464,12 +1467,46 @@ function initCustomCursor() {
     document.head.appendChild(hideCursorStyle);
 }
 
-// Initialize cursor after page is fully loaded
-document.addEventListener('DOMContentLoaded', initCustomCursor);
-// Also try to initialize after a short delay for Streamlit components
-setTimeout(initCustomCursor, 1000);
-// And again after another delay to ensure all components are loaded
-setTimeout(initCustomCursor, 2000);
+function initDeck3DControllers() {
+    try {
+        const canvases = document.querySelectorAll('.stDeckGlJsonChart canvas');
+        canvases.forEach(canvas => {
+            const propKey = Object.keys(canvas).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+            if (!propKey) return;
+            let fiber = canvas[propKey];
+            while (fiber) {
+                let hook = fiber.memoizedState;
+                while (hook) {
+                    const s = hook.memoizedState && hook.memoizedState.current;
+                    if (s && s.deck && s.deck.viewManager) {
+                        const vm = s.deck.viewManager;
+                        for (const id in vm.controllers) {
+                            const ctrl = vm.controllers[id];
+                            if (ctrl && ctrl.setProps && (ctrl.dragMode !== 'rotate' || !ctrl.touchRotate)) {
+                                ctrl.setProps({
+                                    dragMode: 'rotate',
+                                    multiTouchDrag: 'pan',
+                                    dragRotate: true,
+                                    touchRotate: true,
+                                    touchZoom: true,
+                                    dragPan: true,
+                                    scrollZoom: true,
+                                    doubleClickZoom: true,
+                                    inertia: 200
+                                });
+                            }
+                        }
+                    }
+                    hook = hook.next;
+                }
+                fiber = fiber.return;
+            }
+        });
+    } catch (e) {}
+}
+
+document.addEventListener('DOMContentLoaded', initDeck3DControllers);
+setInterval(initDeck3DControllers, 300);
 </script>
 """, unsafe_allow_html=True)
 
@@ -1769,6 +1806,7 @@ if st.session_state.show_search or st.session_state.map_center:
                             deck_3d_view = pdk.Deck(
                                 layers=lidar_layers,
                                 initial_view_state=view_state,
+                                views=[visualization.get_native_3d_view()],
                                 map_style=selected_map_style
                             )
 
@@ -1788,17 +1826,6 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.rerun()
 
                 if use_lidar_3d and 'lidar_3d_deck' in st.session_state:
-                    st.markdown("""
-                    <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
-                        <p style="margin: 0; color: #424242; font-size: 0.95rem;">
-                            <strong>Sterowanie kamerą:</strong>
-                            <strong>Obrót:</strong> Shift/Ctrl + przeciągnij |
-                            <strong>Przesuwanie:</strong> Przeciągnij |
-                            <strong>Zoom:</strong> Kółko myszy
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
-
                     st.pydeck_chart(st.session_state['lidar_3d_deck'], use_container_width=True, height=500, key="lidar_3d_env_chart")
                     import re
                     current_date = datetime.now().strftime("%Y%m%d")
@@ -1871,16 +1898,6 @@ if st.session_state.show_search or st.session_state.map_center:
                         st.rerun()
 
                 if 'osm_3d_deck' in st.session_state and st.session_state['osm_3d_deck']:
-                    st.markdown("""
-                    <div style="background: rgba(66, 165, 245, 0.1); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
-                        <p style="margin: 0; color: #424242; font-size: 0.95rem;">
-                            <strong>Sterowanie kamerą:</strong>
-                            <strong>Obrót:</strong> PPM + przeciągnij |
-                            <strong>Przesuwanie:</strong> Przeciągnij |
-                            <strong>Zoom:</strong> Kółko myszy
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
                     st.pydeck_chart(st.session_state['osm_3d_deck'], use_container_width=True, height=500, key="osm_3d_env_chart")
 
             st.markdown("""<div style="height: 2px; background: linear-gradient(90deg, transparent, #42a5f5, transparent); margin: 2rem 0; opacity: 0.5;"></div>""", unsafe_allow_html=True)
@@ -2376,6 +2393,7 @@ if st.session_state.show_search or st.session_state.map_center:
 
                         r = pdk.Deck(layers=deck_layers,
                                      initial_view_state=view_state,
+                                     views=[visualization.get_native_3d_view()],
                                      map_style=None)
 
                         st.session_state['solar_3d_deck'] = r
@@ -2641,6 +2659,7 @@ if st.session_state.show_search or st.session_state.map_center:
                 massing_deck = pdk.Deck(
                     layers=all_layers,
                     initial_view_state=view_state,
+                    views=[visualization.get_native_3d_view()],
                     map_style=None,
                 )
 
